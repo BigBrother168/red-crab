@@ -1,0 +1,48 @@
+# Setup.exe: renders the frames (they are not in git) and builds the installer.  Run by hand (Actions → Build →
+# Run workflow); the file is kept as an artifact for a few days.  Releases are made by hand with an installer that
+# was tried first, so a tag does not start this (it could replace the release's file).
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version in the file name"
+        default: "1.0.0"
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+
+      - name: Renderer
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python -m pip install -r requirements.txt
+
+      - name: Frames (100 % and 300 %)
+        run: |
+          .venv\Scripts\python prerender.py --body-px 100 --out frames --no-preview
+          .venv\Scripts\python prerender.py --body-px 300 --out frames_hi --no-preview
+
+      - name: Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Setup.exe
+        shell: pwsh
+        run: python installer/build.py --version "${{ inputs.version }}" --out build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Setup
+          path: build/RedCrab-Setup-*.exe
+          retention-days: 7

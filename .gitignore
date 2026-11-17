@@ -1,0 +1,33 @@
+# rendered frames: regenerate with prerender.py
+/frames/
+/frames_hi/
+/frames_custom/
+/frames_custom_*/
+/render.log.*
+*.tmp/
+*.tmp
+*.old/
+# the installer's build (installer/build.py --out)
+/build/
+# Python
+.venv/
+__pycache__/
+# previews and test homes
+/preview/
+/tools/t/
+# runtime files
+event
+state.json
+state.json.*
+pet.log
+pet.log.*
+render.log
+grow.json
+grow.json.bak
+grow.json.*
+album.json
+album.json.tmp
+album.log
+ag_turns.json
+talks.json
+circles.txt
