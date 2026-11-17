@@ -6,7 +6,7 @@
 
 **Works with 4 AI coding agents:** Claude Code · Codex · DeepSeek Harness · Antigravity
 
-Windows · Free and open source · Offline, uses none of your AI quota
+Windows only · Free and open source · Offline, uses none of your AI quota
 
 [Download](../../releases) · [How to Play](GUIDE.en.md) · [中文](README.md)
 
@@ -107,10 +107,11 @@ Download `RedCrab-Setup-<version>.exe` and run it: Python comes with it, nothing
 - **Updating:** run the new version's installer. It installs into the same folder, has the pets quit first and starts them again afterwards. The save and the connected AIs stay as they are.
 - **Moving it:** uninstall, then install to the new place; the save is kept.
 - The installer is not signed, so Windows may say "Windows protected your PC": click "More info", then "Run anyway".
+- **Mac, Linux:** not supported. You are welcome to port it from the source: the frames, the art, the growth system and the hooks carry over; what needs rewriting is the Windows-only part: the pet windows, the tray icon, finding a conversation's window and jumping to it from a circle.
 
 ### Running from source
 
-- Windows. So far only used on Windows 11.
+- Windows.
 - Python 3.12 (64-bit, with Tk). The player uses the standard library only; the tests in `tools\` expect Python in `C:\Python312`.
 - The frame folders `frames\` and `frames_hi\`. They are not in git: the renderer makes them. It needs `requirements.txt` (numpy, pillow) in `.venv`:
 

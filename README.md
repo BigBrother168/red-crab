@@ -6,7 +6,7 @@
 
 **联动 4 款 AI 编程助手：** Claude Code · Codex · DeepSeek Harness · Antigravity
 
-Windows · 免费开源 · 不联网，不耗 AI 额度
+仅支持 Windows · 免费开源 · 不联网，不耗 AI 额度
 
 [下载安装包](../../releases) · [游玩手册](GUIDE.md) · [打赏](https://ifdian.net/a/BigBrother123) · [English](README.en.md)
 
@@ -107,10 +107,11 @@ AI 干活时，小的会蹲下刨土。翻到了先举起来亮一下，这一�
 - **升级：** 直接运行新版的安装包，会装回原来的位置，先让桌宠退出，装完再启动。存档和已经连好的 AI 不受影响。
 - **挪位置：** 先卸载再装到新位置，存档不会丢。
 - 安装包没有数字签名，Windows 可能弹出“Windows 已保护你的电脑”：点“更多信息”→“仍要运行”。
+- **Mac、Linux：** 暂不支持，欢迎拿源码自己移植。动作帧、美术、养成和 hook 都能直接用，要改写的是 Windows 专用的部分：桌宠窗口、托盘图标、找对话窗口和点圆圈跳过去。
 
 ### 从源码运行
 
-- Windows。目前只在 Windows 11 上用过。
+- Windows。
 - Python 3.12（64 位，带 Tk）。播放器只用标准库；`tools\` 里的测试按 Python 在 `C:\Python312` 写的。
 - 帧目录 `frames\`、`frames_hi\`。它们不进 git，要用渲染器生成，渲染器依赖 `requirements.txt`（numpy、pillow），装在 `.venv` 里：
 
