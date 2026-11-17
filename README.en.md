@@ -18,6 +18,8 @@ Windows only · Free and open source · Offline, uses none of your AI quota
 
 ## Take a look
 
+130+ actions, 10 family combos, 28 treasures and 20 levels to grow through. A few of them below.
+
 ### Working along with your AI
 
 Whatever the AI does, the big one does too: a magnifier for reading, a keyboard for editing, a terminal for commands, a spyglass for web searches. The smallest holds up a little blackboard saying what they're on, and how long it took.
