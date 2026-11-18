@@ -5198,7 +5198,7 @@ class Pet(object):
         elif tok in TOOL_CLIPS:
             self._set_busy(now, TOOL_CLIPS[tok], session)
             self._wake(now, plays=True)
-        elif tok in ("agent", "agent_done"):
+        elif tok in ("agent", "agent_done"):    # Claude Code sends extra agent_done words: see Family.grow_agent
             self._wake(now, plays=True)
             if self.pending is None:           # never in place of a queued turn-end reaction
                 self.request(self._shot_name("work_agent" if tok == "agent" else "nod"), now, tok)
@@ -7633,6 +7633,16 @@ class Family(object):
 
     @grow_safe
     def grow_agent(self, now):
+        """A helper back (agent_done): counts in the album ("派出的帮手") and gives XP.
+
+        Known quirk, left as is (2026-11-17): the count runs high with Claude Code.  After each reply Claude Code runs
+        small background tasks of its own (most likely memory extraction or the next-prompt suggestion; they keep no
+        transcript).  They end through the same code as a turn's Stop and carry an agent id, so they fire
+        SubagentStop, but they never fire SubagentStart.  So most replies bring one agent_done that no agent word
+        came before: it counts here, and the family nods or brings a note (Family follower rules) as for a real one.
+        Codex and DeepSeek send their start and end in pairs; Antigravity has no start at all (clawd_hook.ag_words).
+        A fix, if you want one: for agents that do send starts, keep per session how many helpers are out and take
+        an agent_done only while one is (here, in Pet._semantic and in the follower reaction)."""
         if not self.replaying:
             self.grow.count("agents")
             self.grow_gain(GROW_XP["agent_done"], "helper back", now)

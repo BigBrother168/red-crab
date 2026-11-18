@@ -80,7 +80,7 @@ HOOK_MAP = [
     ("PostToolUse", None, "think"),
     ("PostToolUseFailure", None, "fail"),
     ("SubagentStart", None, "agent"),
-    ("SubagentStop", None, "agent_done"),
+    ("SubagentStop", None, "agent_done"),   # 回完话后它自己的后台小活也会发（没有 SubagentStart），见桌宠的 grow_agent
     ("PreCompact", None, "compact"),
     ("PostCompact", None, "compact_end"),
     ("Stop", None, "stop"),
