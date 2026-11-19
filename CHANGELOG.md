@@ -3,6 +3,15 @@
 每个版本改了什么。安装包在 GitHub 的 Releases 里下载。
 What changed in each version. The installer is on the GitHub Releases page.
 
+## 未发布 / Unreleased
+
+- **支持 macOS**（11 及以上，Apple 芯片和 Intel）：`RedCrab.app` 装在 .dmg 里（`RedCrab-<版本>-macOS-arm64.dmg` / `-x86_64.dmg`），由 `installer/build_mac.py` 打包。桌宠、动作、养成、图鉴、四家的 hook 和所有 `clawd` 命令都和 Windows 上一样；托盘图标在菜单栏，开机自启是登录时打开。装法和不同之处见 README 的“在 macOS 上安装和使用”。
+  **macOS support** (11 or later, Apple silicon and Intel): `RedCrab.app` in a .dmg (`RedCrab-<version>-macOS-arm64.dmg` / `-x86_64.dmg`), built by `installer/build_mac.py`. The pets, actions, growth, the album, the hooks for the four agents and every `clawd` command are as on Windows; the tray icon is in the menu bar, and Start with Windows is Open at Login. How to install it and what differs: "Installing and using on macOS" in the README.
+  - `clawd_mac/` 在 Mac 上用 AppKit 接住桌宠的 Win32 调用，用 Quartz 代替 GDI+，见 `clawd_mac/README.md`。
+    `clawd_mac/` serves the pets' Win32 calls over AppKit on a Mac, and GDI+ over Quartz; see `clawd_mac/README.md`.
+  - GitHub Actions：`macOS` 工作流在每次 push 和 pull request 时跑测试并打一个 arm64 的 .dmg；手动的 `Build` 在 Setup.exe 旁边也打 arm64 和 Intel 的 .dmg。
+    GitHub Actions: the `macOS` workflow runs the tests and builds an arm64 .dmg on every push and pull request; the manual `Build` also makes arm64 and Intel .dmg files next to Setup.exe.
+
 ## 1.0.0（2026-11-16）
 
 第一个公开版本。发布前最后的调整：

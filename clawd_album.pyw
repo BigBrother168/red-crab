@@ -32,6 +32,12 @@ from operator import add
 import tkinter as tk
 
 HERE = os.path.dirname(os.path.abspath(__file__))       # the program: frames/, frames_hi/
+MAC = sys.platform == "darwin"
+if MAC:                                      # what differs on macOS: clawd_mac/
+    if HERE not in sys.path:                 # (python -I leaves this folder off sys.path)
+        sys.path.insert(0, HERE)
+    from clawd_mac import lock as maclock
+    from clawd_mac import system as macsys
 
 
 def data_home():
@@ -40,13 +46,26 @@ def data_home():
     h = os.environ.get("CLAWD_HOME")
     if h:
         return os.path.abspath(h)
+    if MAC:
+        return mac_home()
     if any(os.path.exists(os.path.join(HERE, n)) for n in ("state.json", "grow.json")):
         return HERE
     return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Clawd")
 
 
+def mac_home():
+    """macOS: this folder if a save is already here and it is not inside an app (RedCrab.app holds only the
+    program); else ~/Library/Application Support/Clawd, as clawd.py finds it."""
+    in_app = (".app" + os.sep + "Contents" + os.sep) in HERE + os.sep
+    if not in_app and any(os.path.exists(os.path.join(HERE, n)) for n in ("state.json", "grow.json")):
+        return HERE
+    return macsys.home_dir()
+
+
 def system_lang():
     """zh when Windows shows Chinese, else en: the pets' language while state.json has none yet."""
+    if MAC:
+        return macsys.ui_lang()                # the first of the user's languages (System Settings > Language)
     try:
         return "zh" if ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF == 0x04 else "en"
     except Exception:
@@ -159,6 +178,35 @@ BRASS, BRASS_DARK, BRASS_INK = "#dcbb66", "#9c7a2c", "#5a4214"
 FAMILY_RATIOS = getattr(P, "FAMILY_RATIOS", (1.0, 0.8, 0.6))
 # where the body is when it stands still, of its body px from the feet: a snapshot never shows it bigger than this
 BODY_BOX = (-0.5, -0.76, 0.51, 0.03)
+# macOS: the Windows faces named here -> the Mac ones ("": the Tk default, the system's own).  Kaiti SC is KaiTi's
+# hand; Noteworthy writes as Segoe Print does.  Segoe Fluent Icons is not there: its icons become symbols (MAC_ICONS)
+# that take the fill colour as the icons do (an emoji would not): a pencil, a frame, a flag, a pick, a gem, a sparkle
+# (the ✧ of the combos' page), a crown, a tick.
+MAC_FACES = {"KaiTi": "Kaiti SC", "Segoe Print": "Noteworthy", "Microsoft YaHei UI": "PingFang SC",
+             "Microsoft YaHei": "PingFang SC", "Segoe UI": "", "Segoe UI Symbol": "", "Consolas": "Menlo",
+             "Segoe UI Emoji": "Apple Color Emoji", ICON_FONT: "Apple Symbols"}
+MAC_ICONS = {"\ue790": "\u270e", "\ue91b": "\u25a3", "\ue7c1": "\u2691", "\ue7b8": "\u26cf", "\uf158": "\u2756",
+             "\ueb68": "\u2726", "\ueb95": "\u265b", "\ue73e": "\u2714"}
+
+
+def mac_font(font, widget):
+    """A font tuple with a Windows face -> the same with the Mac one (MAC_FACES); anything else as it is."""
+    if not (isinstance(font, tuple) and font and font[0] in MAC_FACES):
+        return font
+    face = MAC_FACES[font[0]] or widget.tk.call("font", "actual", "TkDefaultFont", "-family")
+    return (face,) + tuple(font[1:])
+
+
+class MacCanvas(tk.Canvas):
+    """The album's canvas on macOS: every text in a Mac face (mac_font), the icons as symbols (MAC_ICONS)."""
+
+    def create_text(self, *args, **kw):
+        font = kw.get("font")
+        if isinstance(font, tuple) and font and font[0] == ICON_FONT and "text" in kw:
+            kw["text"] = MAC_ICONS.get(kw["text"], kw["text"])
+        if font is not None:
+            kw["font"] = mac_font(font, self)
+        return tk.Canvas.create_text(self, *args, **kw)
 
 
 def hexc(rgb):
@@ -532,7 +580,7 @@ class Album(object):
                                          max(0, (root.winfo_screenheight() - self.H) // 2 - self.S(20))))
         root.minsize(int(BASE_W * 0.55), int(BASE_H * 0.55))
         root.configure(bg=COVER)
-        self.cv = tk.Canvas(root, width=self.W, height=self.H, bg=COVER, highlightthickness=0)
+        self.cv = (MacCanvas if MAC else tk.Canvas)(root, width=self.W, height=self.H, bg=COVER, highlightthickness=0)
         self.cv.pack(fill="both", expand=True)
         self.page = PAGES[page][0]
         self.sel = {}                          # page -> the key of the cell that is picked
@@ -581,17 +629,19 @@ class Album(object):
 
     def dress(self):
         """The title bar in the cover's leather (Windows 11; elsewhere it stays as it is) and Clawd as the icon."""
-        try:
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-            dwm = ctypes.windll.dwmapi
+        self.dressed = False                   # macOS: no DWM, the title bar is the system's
+        if not MAC:
+            try:
+                hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+                dwm = ctypes.windll.dwmapi
 
-            def colour(h):
-                r, g, b = int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)
-                return ctypes.c_int(r | g << 8 | b << 16)
-            self.dressed = all(dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(colour(c)), 4) == 0
-                               for attr, c in ((35, COVER), (36, CARD), (34, COVER_DARK)))
-        except Exception:
-            self.dressed = False
+                def colour(h):
+                    r, g, b = int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)
+                    return ctypes.c_int(r | g << 8 | b << 16)
+                self.dressed = all(dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(colour(c)), 4) == 0
+                                   for attr, c in ((35, COVER), (36, CARD), (34, COVER_DARK)))
+            except Exception:
+                self.dressed = False
         try:
             got = self.fr.frame("idle", 0)
             if got is not None:
@@ -2054,6 +2104,10 @@ class Album(object):
 
 def memory():
     """-> (working set, private bytes) of this process in MB."""
+    if MAC:                                    # macOS: the most it has had in memory (ru_maxrss: bytes there), for both
+        import resource
+        mb = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1048576.0, 1)
+        return mb, mb
     class PMC(ctypes.Structure):
         _fields_ = [("cb", ctypes.c_uint32), ("PageFaultCount", ctypes.c_uint32)] + [
             (n, ctypes.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
@@ -2084,6 +2138,8 @@ def main(argv):
             selftest = os.path.abspath(argv[i + 1]); i += 1
         i += 1
     frames_dir = frames_dir or os.path.join(HERE, "frames")
+    if MAC:
+        return mac_main(home, frames_dir, hi_dir, page, selftest)
     k32, u32 = ctypes.windll.kernel32, ctypes.windll.user32
     name = "ClawdAlbum_%08x" % (zlib.crc32(os.path.normcase(home).encode("utf-8")) & 0xFFFFFFFF)
     mutex = k32.CreateMutexW(None, False, name)
@@ -2102,6 +2158,32 @@ def main(argv):
     album.root.mainloop()
     del mutex
     return 0
+
+
+def mac_main(home, frames_dir, hi_dir, page, selftest):
+    """main on macOS: the mutex is a lock file (clawd_mac.lock), the open album is brought forward by its pid; no
+    DPI call (Tk measures in points there)."""
+    name = "ClawdAlbum_%08x" % (zlib.crc32(os.path.normcase(home).encode("utf-8")) & 0xFFFFFFFF)
+    if not maclock.acquire(name):              # one album a home: the one that is open comes to the front
+        macsys.activate_pid(maclock.owner(name))
+        return 0
+    album = Album(home, frames_dir, hi_dir, page, selftest)
+    mac_front(album.root)
+    album.root.mainloop()
+    maclock.release(name)
+    return 0
+
+
+def mac_front(root):
+    """macOS: the window comes to the front once, when it shows.  Opened from the pets (an app in the background)
+    it would open behind the window in use, and it is what was just asked for.  Not with CLAWD_NO_ACTIVATE (tests)."""
+    if os.environ.get("CLAWD_NO_ACTIVATE"):
+        return
+
+    def shown(e):
+        root.unbind("<Map>")
+        macsys.activate_pid(os.getpid())
+    root.bind("<Map>", shown)
 
 
 if __name__ == "__main__":

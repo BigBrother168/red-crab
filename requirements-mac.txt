@@ -1,0 +1,7 @@
+# What Red Crab needs at run time on macOS (PyObjC: AppKit, Quartz, CoreText).  installer/build_mac.py puts these in
+# RedCrab.app; running from source on macOS also needs them:  python3 -m pip install -r requirements-mac.txt
+# (requirements.txt is the renderer, prerender.py.)
+pyobjc-core==13.0
+pyobjc-framework-Cocoa==13.0
+pyobjc-framework-Quartz==13.0
+pyobjc-framework-CoreText==13.0

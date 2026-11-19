@@ -33,6 +33,24 @@ OK_C = "#2E7D4F"
 WARN_C = "#B5652B"
 BAD_C = "#B03A2E"
 ACCENT = "#C4572F"
+MAC = sys.platform == "darwin"
+if MAC:                                      # what differs on macOS: clawd_mac/
+    if HERE not in sys.path:                 # (python -I leaves this folder off sys.path)
+        sys.path.insert(0, HERE)
+    from clawd_mac import lock as maclock
+    from clawd_mac import system as macsys
+    BG = "systemWindowBackgroundColor"       # Tk's aqua theme paints the ticks and buttons in the window's own colour,
+                                             # whatever their style says: the page takes it too (no grey patches)
+# macOS: the Windows faces named here -> the Mac ones ("": the Tk default, the system's own)
+MAC_FACES = {"Microsoft YaHei UI": "PingFang SC", "Microsoft YaHei": "PingFang SC", "Segoe UI": "", "Consolas": "Menlo",
+             "Segoe UI Emoji": "Apple Color Emoji", "Segoe UI Symbol": ""}
+
+
+def mac_face(face, widget):
+    """A Windows face -> the Mac one (MAC_FACES); any other as it is."""
+    if face not in MAC_FACES:
+        return face
+    return MAC_FACES[face] or widget.tk.call("font", "actual", "TkDefaultFont", "-family")
 
 
 def load(name, file):
@@ -55,6 +73,12 @@ class Connect(object):
         self.f = root.winfo_fpixels("1i") / 96.0
         zh = cl.get_lang() == "zh"
         face = "Microsoft YaHei UI" if zh else "Segoe UI"
+        if MAC:
+            face = mac_face(face, root)
+            try:                               # light, as its own colours are, also in Dark Mode (else the
+                root.wm_attributes("-appearance", "aqua")      # ticks and buttons come dark on the light page)
+            except tk.TclError:
+                pass
         self.font = (face, -self.S(14))
         self.small = (face, -self.S(12))
         self.head = (face, -self.S(18), "bold")
@@ -267,6 +291,8 @@ def main(argv):
         elif argv[i] == "--uncheck" and i + 1 < len(argv):
             uncheck = tuple(a for a in argv[i + 1].split(",") if a); i += 1
         i += 1
+    if MAC:
+        return mac_main(home, selftest, check, uncheck)
     k32 = ctypes.windll.kernel32
     k32.CreateMutexW(None, False, "Local\\ClawdConnect")
     if k32.GetLastError() == 183 and not selftest:     # one at a time: the open one comes to the front
@@ -286,6 +312,35 @@ def main(argv):
         cl.HOME, cl.STATE_FILE = home, os.path.join(home, "state.json")
     Connect(cl, selftest, check, uncheck).root.mainloop()
     return 0
+
+
+def mac_main(home, selftest, check, uncheck):
+    """main on macOS: the mutex is a lock file (clawd_mac.lock), the open window is brought forward by its pid; no
+    DPI call (Tk measures in points there)."""
+    name = "Local\\ClawdConnect"
+    if not maclock.acquire(name) and not selftest:     # one at a time: the open one comes to the front
+        macsys.activate_pid(maclock.owner(name))
+        return 0
+    cl = load("clawd", "clawd.py")
+    if home:
+        cl.HOME, cl.STATE_FILE = home, os.path.join(home, "state.json")
+    win = Connect(cl, selftest, check, uncheck)
+    mac_front(win.root)
+    win.root.mainloop()
+    maclock.release(name)
+    return 0
+
+
+def mac_front(root):
+    """macOS: the window comes to the front once, when it shows.  Opened from the pets (an app in the background)
+    it would open behind the window in use, and it is what was just asked for.  Not with CLAWD_NO_ACTIVATE (tests)."""
+    if os.environ.get("CLAWD_NO_ACTIVATE"):
+        return
+
+    def shown(e):
+        root.unbind("<Map>")
+        macsys.activate_pid(os.getpid())
+    root.bind("<Map>", shown)
 
 
 if __name__ == "__main__":

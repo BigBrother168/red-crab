@@ -6,7 +6,7 @@
 
 **联动 4 款 AI 编程助手：** Claude Code · Codex · DeepSeek Harness · Antigravity
 
-仅支持 Windows · 免费开源 · 不联网，不耗 AI 额度
+支持 Windows 和 macOS · 免费开源 · 不联网，不耗 AI 额度
 
 [下载安装包](../../releases) · [游玩手册](GUIDE.md) · [打赏](https://ifdian.net/a/BigBrother123) · [English](README.en.md)
 
@@ -99,21 +99,60 @@ AI 干活时，小的会蹲下刨土。翻到了先举起来亮一下，这一�
 - [全部功能](#全部功能)
 - [Hook 是怎么连接的](#hook-是怎么连接的)
 - [文件和运行数据](#文件和运行数据)
+- [macOS 移植说明](#macos-移植说明)
 
 ## 使用教程
 
 ### 安装
 
-下载 `RedCrab-Setup-<版本>.exe` 运行就行：自带 Python，不用另装别的，不要管理员权限。装到哪里可以自己选（哪个盘都行），默认在 `%LOCALAPPDATA%\Programs\RedCrab`；安装时选“为所有用户安装”就要管理员权限，可以装进 Program Files。装完会启动，开始菜单里有“红螃蟹”。
+**Windows：** 下载 `RedCrab-Setup-<版本>.exe` 运行就行：自带 Python，不用另装别的，不要管理员权限。装到哪里可以自己选（哪个盘都行），默认在 `%LOCALAPPDATA%\Programs\RedCrab`；安装时选“为所有用户安装”就要管理员权限，可以装进 Program Files。装完会启动，开始菜单里有“红螃蟹”。
 
 - **升级：** 直接运行新版的安装包，会装回原来的位置，先让桌宠退出，装完再启动。存档和已经连好的 AI 不受影响。
 - **挪位置：** 先卸载再装到新位置，存档不会丢。
 - 安装包没有数字签名，Windows 可能弹出“Windows 已保护你的电脑”：点“更多信息”→“仍要运行”。
-- **Mac、Linux：** 暂不支持，欢迎拿源码自己移植。动作帧、美术、养成和 hook 都能直接用，要改写的是 Windows 专用的部分：桌宠窗口、托盘图标、找对话窗口和点圆圈跳过去。
+- **Mac：** 见下面的[在 macOS 上安装和使用](#在-macos-上安装和使用)。
+- **Linux：** 暂不支持，欢迎拿源码自己移植。动作帧、美术、养成和 hook 都能直接用，要改写的是和系统打交道的部分：桌宠窗口、托盘图标、找对话窗口和点圆圈跳过去（Mac 版是怎么做的，见 [macOS 移植说明](#macos-移植说明)）。
+
+### 在 macOS 上安装和使用
+
+支持 macOS 11 及以上，Apple 芯片和 Intel 芯片各有一个安装包：`RedCrab-<版本>-macOS-arm64.dmg`（Apple 芯片）、`RedCrab-<版本>-macOS-x86_64.dmg`（Intel）。
+
+- **安装：** 打开 .dmg，把 `RedCrab.app` 拖进“应用程序”，从那里打开。自带 Python，不用另装别的。
+- **第一次打开：** app 没有经过苹果公证（只有 ad-hoc 签名），macOS 会拦下来。先双击它一次，再到“系统设置 → 隐私与安全性”点“仍要打开”（macOS 14 及更早，按住 Control 点它（或右键）→“打开”→“打开”也行）；或者在终端里运行：
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/RedCrab.app
+  ```
+
+- **先挪进“应用程序”：** 直接在 .dmg 里或“下载”文件夹里打开时，macOS 把它放到一个临时位置运行（App Translocation），这时“连接 AI”和登录时打开都不肯装。先把它挪进“应用程序”再打开。
+
+和 Windows 不一样的地方：
+
+- **菜单栏图标：** 托盘图标在屏幕顶上的菜单栏里。点一下打开它的菜单：隐藏 / 显示、图鉴、活跃度、连接 AI…、登录时打开、去看看新版本、退出。按住 Option 点一下，直接隐藏 / 显示。
+- **鼠标：** 右键或 Control+点按一只，打开菜单；鼠标在它身上时 Control+滚轮（或 Command+滚轮）调大小。
+- **登录时打开：** 就是 Windows 上的开机自启。打开后加一个 LaunchAgent：`~/Library/LaunchAgents/io.github.bigbrother168.redcrab.plist`。
+- **存档：** 在 `~/Library/Application Support/Clawd`；缩好的各只大小的帧在 `~/Library/Caches/Clawd`。
+- **点圆圈跳过去：** Claude 和 Codex 的桌面版用它们的 `claude://`、`codex://` 链接打开那个对话；在 Terminal.app 或 iTerm2 里的 Claude Code 切到它所在的标签（按标签的 tty 找）。第一次 macOS 会问要不要让红螃蟹控制“终端”/ iTerm，点允许；不允许的话只把那个程序拉到前面。其他终端和编辑器（Ghostty、WezTerm、kitty、Alacritty、Warp、VS Code 等）拉到前面。
+- **`clawd` 命令：** app 里带着自己的 Python。在 `~/.zshrc` 里加一行：
+
+  ```bash
+  alias clawd='/Applications/RedCrab.app/Contents/Resources/python/bin/python3 -I /Applications/RedCrab.app/Contents/Resources/app/clawd.py'
+  ```
+
+  之后的命令和 Windows 上一样，见[命令](#命令)。
+- **卸载：** `clawd uninstall`（去掉四家的 hook 和登录时打开；存档留着，说在哪，不要了就删掉 `~/Library/Application Support/Clawd` 和 `~/Library/Caches/Clawd`），退出，再把 `RedCrab.app` 拖进废纸篓。
+
+一样的地方：桌宠、动作、养成、组合、图鉴、四家的 hook、事件文件和所有 `clawd` 命令。
+
+Mac 上已知的不足：
+
+- 没有公证，第一次打开要像上面那样放行。
+- 图鉴和“连接 AI”窗口显示成一个单独的小 app。
+- 一块屏幕的缩放和主屏不一样时，那块屏幕上的桌宠有点虚。
 
 ### 从源码运行
 
-- Windows。
+- Windows，或 macOS 11 及以上（见下面的“在 macOS 上”）。
 - Python 3.12（64 位，带 Tk）。播放器只用标准库；`tools\` 里的测试按 Python 在 `C:\Python312` 写的。
 - 帧目录 `frames\`、`frames_hi\`。它们不进 git，要用渲染器生成，渲染器依赖 `requirements.txt`（numpy、pillow），装在 `.venv` 里：
 
@@ -125,6 +164,17 @@ AI 干活时，小的会蹲下刨土。翻到了先举起来亮一下，这一�
   ```
 
 - 启动：`python clawd.py`（第一次启动会弹出“连接 AI”窗口）。
+
+- **在 macOS 上：** Python 3.12，另外装 `requirements-mac.txt`（PyObjC）。渲染帧和 Windows 上一样用 `prerender.py`；帧里那几个字在 Mac 上用系统自带的冬青黑体（Hiragino Sans GB）和楷体（Kaiti SC）或宋体（Songti SC），代替微软雅黑和楷体：
+
+  ```bash
+  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-mac.txt
+  .venv/bin/python prerender.py --body-px 100 --out frames --no-preview
+  .venv/bin/python prerender.py --body-px 300 --out frames_hi --no-preview
+  .venv/bin/python clawd_pet.pyw
+  ```
+
+  测试：`.venv/bin/pip install pytest && .venv/bin/python -m pytest clawd_mac/tests`。
 
 - 下面的命令以代码放在 `E:\clawd`、Python 在 `C:\Python312` 为例，换成你自己的位置就行。程序里的路径都按自己所在的位置推，放在哪个文件夹都能跑；挪之前先对装过的每家 `hooks off`，挪完再 `on`。
 
@@ -144,7 +194,7 @@ AI 干活时，小的会蹲下刨土。翻到了先举起来亮一下，这一�
 
 | agent | 装法 | 装到哪里 | 显示不了的 | 点圆圈 |
 |---|---|---|---|---|
-| Claude Code | `clawd hooks on` | `~/.claude/settings.json`，17 个 hook | —— | 桌面端切到那个对话；Windows Terminal 切到那个标签；其他终端切到窗口 |
+| Claude Code | `clawd hooks on` | `~/.claude/settings.json`，17 个 hook | —— | 桌面端切到那个对话；Windows Terminal、Mac 的 Terminal.app 和 iTerm2 切到那个标签；其他终端切到窗口 |
 | Codex | `clawd hooks on codex`，再在 Codex 里信任（命令行 `/hooks`，桌面版 设置 > Hooks） | `~/.codex/hooks.json`，12 个 hook | 读文件、查网页、工具出错、它自己的后台任务（不算你的对话） | 桌面版切到那个对话；终端里切到窗口 |
 | DeepSeek Harness | `clawd hooks on deepseek`，重启 DeepSeek | 插件 `clawd_dsh.mjs`（`~/.dsh/profiles/desktop/cordis.patch.yml` 末尾加一段加载它） | 整理记忆 | 切到它的窗口（没有打开某个对话的链接） |
 | Antigravity | `clawd hooks on antigravity`，新开的对话生效 | `~/.gemini/config/hooks.json` 里的 `"clawd"` 一项，4 个 hook | 等你回复、派子智能体出发、整理记忆、对话结束；动作在工具做完时才出现 | 切到它的窗口（同上）；关到托盘时叫回来 |
@@ -153,7 +203,7 @@ AI 干活时，小的会蹲下刨土。翻到了先举起来亮一下，这一�
 
 ### 命令
 
-下面的 `clawd ...` 是 `python clawd.py ...` 的简写：从源码运行时是 `C:/Python312/python.exe E:/clawd/clawd.py ...`（可以在 PowerShell 配置文件里定义一个 `clawd` 函数）；装的版本是安装目录里的 `python\python.exe clawd.py ...`。
+下面的 `clawd ...` 是 `python clawd.py ...` 的简写：从源码运行时是 `C:/Python312/python.exe E:/clawd/clawd.py ...`（可以在 PowerShell 配置文件里定义一个 `clawd` 函数）；装的版本是安装目录里的 `python\python.exe clawd.py ...`；Mac 上见[在 macOS 上安装和使用](#在-macos-上安装和使用)。
 
 | 命令 | 作用 |
 |---|---|
@@ -169,7 +219,7 @@ AI 干活时，小的会蹲下刨土。翻到了先举起来亮一下，这一�
 | `clawd status` | 查看是否在运行、是否隐藏，以及全家的等级（见“养成”） |
 | `clawd circles` | 列出对话圆圈：每个是哪个对话、在桌面版还是终端、点了会去哪（跳不过去时先看它） |
 | `clawd activity quiet` / `normal` / `lively` | 活跃度：安静 / 正常 / 活泼；不带参数显示现在的 |
-| `clawd autostart on` / `off` | 开机自启开 / 关（同托盘菜单的 `开机自启`）；不带参数显示现在的状态 |
+| `clawd autostart on` / `off` | 开机自启开 / 关（同托盘菜单的 `开机自启`；Mac 上是登录时打开）；不带参数显示现在的状态 |
 | `clawd lang en` / `zh` | 切换界面语言（英文 / 中文）；不带参数显示当前语言 |
 | `clawd hooks on` / `off` / `status` `[claude\|codex\|deepseek\|antigravity]` | 安装、卸载、查看 hook（DeepSeek 是插件）；不写 agent 就是 Claude Code |
 | `clawd connect` | 打开“连接 AI”窗口（同右键菜单、托盘菜单的 `连接 AI…`） |
@@ -190,8 +240,8 @@ AI 干活时，小的会蹲下刨土。翻到了先举起来亮一下，这一�
 | 拖动 / 松手 | 被拎起来 / 落地；靠近屏幕边缘时滑过去贴边 |
 | 拖着快速一甩、趁还在动时松手 | 被扔出去：在空中翻跟头，碰到屏幕两边和顶上会弹回来，落到底部弹两下，坐着晕乎乎冒星星，再站起来；附近的家人跑过来拍拍它。飞的时候点住能接住，只点一下它就接着往下掉 |
 | 把一只拖到另一只身上松手 | 击掌；放到比它大的那只头顶上是叠罗汉 |
-| Ctrl+滚轮 | 全家一起变大变小 |
-| 右键 | 菜单 |
+| Ctrl+滚轮（Mac 上 Control 或 Command+滚轮） | 全家一起变大变小 |
+| 右键（Mac 上也可以 Control+点按） | 菜单 |
 
 **右键菜单：**
 
@@ -215,7 +265,7 @@ AI 干活时，小的会蹲下刨土。翻到了先举起来亮一下，这一�
 
 ### 托盘图标
 
-任务栏右下角有一个 Clawd 小图标（Windows 11 默认可能收在 `^` 里，可以拖出来）。
+任务栏右下角有一个 Clawd 小图标（Windows 11 默认可能收在 `^` 里，可以拖出来）。Mac 上它在菜单栏里，用法见[在 macOS 上安装和使用](#在-macos-上安装和使用)。
 
 - **左键点一下：** 全家隐藏，再点一下显示出来。隐藏时图标变淡。
 - **右键：** `隐藏` / `显示`、`回到右下角`、`图鉴`、`活跃度`、`连接 AI…`、`开机自启`（打勾就开）、`去看看新版本`（用浏览器打开 GitHub 的发布页；桌宠自己不联网，不会自动检查）、`退出`。
@@ -228,7 +278,7 @@ AI 干活时，小的会蹲下刨土。翻到了先举起来亮一下，这一�
 
 - 关闭：右键 `退出`、托盘图标右键 `退出`，或 `clawd off`。不想看到又不想关，就点托盘图标隐藏。
 - 断开某一家：在“连接 AI”窗口里取消勾选，或 `clawd hooks off`（Claude Code）、`clawd hooks off codex` 等。只删除我们加的那部分，其他 hook 不动。
-- 全部去掉：装的版本在 Windows 的“设置 → 应用”里卸载“红螃蟹”：会先退出，去掉四家的 hook 和开机自启，再问要不要把存档也删掉（默认不删）。从源码运行的用 `clawd uninstall`，存档留着。
+- 全部去掉：装的版本在 Windows 的“设置 → 应用”里卸载“红螃蟹”：会先退出，去掉四家的 hook 和开机自启，再问要不要把存档也删掉（默认不删）。从源码运行的用 `clawd uninstall`，存档留着。Mac 上见[在 macOS 上安装和使用](#在-macos-上安装和使用)。
 
 ## 全部功能
 
@@ -584,9 +634,10 @@ stop 7b3befbc
 | `clawd_hook.py`、`clawd_dsh.mjs` | 各家 hook 写词用的脚本（Antigravity 的翻译表也在里面）；DeepSeek Harness 的插件 |
 | `clawd_album.pyw`、`clawd_album_hints.py` | 图鉴窗口，和每一格的密语提示（中英文） |
 | `clawd_connect.pyw` | “连接 AI”窗口 |
-| `clawd_scale.py` | 调大小时把 100% 或 300% 的帧缩成每只的大小（只用 Windows 自带的 GDI+，不要渲染器） |
+| `clawd_scale.py` | 调大小时把 100% 或 300% 的帧缩成每只的大小（Windows 上只用系统自带的 GDI+，Mac 上用 Quartz，不要渲染器） |
 | `prerender.py`、`renderer\` | 渲染器和角色美术代码，只用来生成 `frames\`、`frames_hi\` |
-| `installer\` | 打包：`build.py`（收齐程序、帧、嵌入式 Python 和 Tk，调 Inno Setup）、`redcrab.iss`（安装、升级、卸载） |
+| `installer\` | 打包：`build.py`（收齐程序、帧、嵌入式 Python 和 Tk，调 Inno Setup）、`redcrab.iss`（安装、升级、卸载）；`build_mac.py`（Mac 的 `RedCrab.app` 和 .dmg） |
+| `clawd_mac\` | Mac 上替 Windows 接住桌宠的 Win32 和 GDI+ 调用（AppKit、Quartz），见 [macOS 移植说明](#macos-移植说明) |
 | `tools\` | 测试和美术工具（测试按 Python 在 `C:\Python312` 写的） |
 | `docs\media\` | README 里的图片和动图 |
 | `frames\`、`frames_hi\` | 100% 和 300% 的帧，不进 git |
@@ -599,9 +650,17 @@ stop 7b3befbc
 | `ag_turns.json` | Antigravity 哪些对话在回合中 |
 | `pet.log`、`pet.log.1` | 日志（满了换到 `.1`）。`exit: menu` 是从菜单退出，不是故障 |
 
-从 `event` 起的运行数据都在 `%APPDATA%\Clawd`，程序目录里只有程序，重装、升级不丢存档。程序目录里已经有存档（`state.json` 或 `grow.json`，从源码运行的老用法）时，数据和 `frames_custom*` 照旧都放在程序目录。环境变量 `CLAWD_HOME` 可以另指一个地方（测试用）。
+从 `event` 起的运行数据都在 `%APPDATA%\Clawd`（Mac 上在 `~/Library/Application Support/Clawd`，`frames_custom*` 在 `~/Library/Caches/Clawd`），程序目录里只有程序，重装、升级不丢存档。程序目录里已经有存档（`state.json` 或 `grow.json`，从源码运行的老用法）时，数据和 `frames_custom*` 照旧都放在程序目录。环境变量 `CLAWD_HOME` 可以另指一个地方（测试用）。
 
 程序以外用到的：Python（装的版本自带一份）、装过的各家 agent 的配置（`~/.claude/settings.json` 等）、系统字体。
+
+## macOS 移植说明
+
+Mac 版用的是同一份程序。`clawd_mac\` 这个包在 Mac 上接住桌宠的 Win32 调用，用 AppKit 来做；GDI+ 换成 Quartz。怎么设计的、每个文件管什么，见 [clawd_mac/README.md](clawd_mac/README.md)。
+
+- **打包：** `python installer/build_mac.py --version 1.0.0`（要先有 `frames/` 和 `frames_hi/`），生成 `build/RedCrab-1.0.0-macOS-<架构>.dmg`，里面是 `RedCrab.app`。
+- **GitHub Actions：** `macOS` 工作流在每次 push 和 pull request 时跑测试，再打一个 arm64 的 .dmg（作为 artifact 保留）；手动运行的 `Build` 工作流在 Setup.exe 旁边也打 arm64 和 Intel 两个 .dmg。
+- Linux 仍不支持。
 
 ## 许可证
 

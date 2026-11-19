@@ -4,7 +4,10 @@
   at AGENT          ->  "at <session> <window> AGENT <entry> <tab>"   (where that conversation is: for the numbered
                          circles; entry: Claude Code's CLAUDE_CODE_ENTRYPOINT, "claude-desktop" or "cli", which says
                          whether a click opens its desktop app or goes to its terminal; tab: WT_SESSION, the Windows
-                         Terminal tab it runs in; "-" for none)
+                         Terminal tab it runs in; "-" for none.  On macOS (where_mac) window is a pid, not a window: the
+                         nearest ancestor process that is an app (Terminal, iTerm, VS Code, the Claude app), 0 for none;
+                         and tab the controlling terminal of the nearest ancestor that has one, its device name without
+                         /dev/ ("ttys003": the tab or window a terminal shows it in), "-" for none)
   WORD AGENT --at   ->  both lines
 
   Not you (2026-11-15): a UserPromptSubmit that is Code Mode handing a script's output back to Claude ("source":
@@ -28,16 +31,22 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+MAC = sys.platform == "darwin"
 
 
 def data_home():
     """Where the pets read their events, found as clawd_pet.pyw finds it (default_home): CLAWD_HOME; this folder if
-    a save is already here (a copy run from source); else %APPDATA%\\Clawd (an install)."""
+    a save is already here (a copy run from source); else %APPDATA%\\Clawd (an install), on macOS
+    ~/Library/Application Support/Clawd (clawd_mac.system.home_dir, not imported: this runs on every event; and never
+    inside RedCrab.app, as the pet never writes there)."""
     h = os.environ.get("CLAWD_HOME")
     if h:
         return h
-    if os.path.exists(os.path.join(HERE, "state.json")) or os.path.exists(os.path.join(HERE, "grow.json")):
+    bundled = MAC and ".app/Contents/" in HERE + "/"
+    if not bundled and (os.path.exists(os.path.join(HERE, "state.json")) or os.path.exists(os.path.join(HERE, "grow.json"))):
         return HERE
+    if MAC:
+        return os.path.join(os.path.expanduser("~"), "Library", "Application Support", "Clawd")
     return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Clawd")
 
 
@@ -112,7 +121,66 @@ def where_fields():
     Windows Terminal's WT_SESSION), "-" for one not there"""
     entry = re.sub(r"[^a-z0-9_-]", "", os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").lower())[:24]
     tab = re.sub(r"[^0-9a-f-]", "", os.environ.get("WT_SESSION", "").lower())[:36]
+    if MAC:
+        tab = where_mac()[1]                   # its terminal ("ttys003"): WT_SESSION is Windows Terminal's
     return "%s %s" % (entry or "-", tab or "-")
+
+
+# ---- macOS: where the conversation is, from the line of ancestor processes ----
+# libproc through ctypes, one process at a time up the line: about 2 ms (one ps call for the whole table: 80 ms).
+MAC_APP = ".app/Contents/MacOS/"                  # in an app's own executable's path
+PROC_PIDT_SHORTBSDINFO, SHORTBSDINFO_SIZE, PPID_AT = 13, 64, 4   # proc_bsdshortinfo: anyone's (also root's login)
+PROC_PIDTBSDINFO, BSDINFO_SIZE, TDEV_AT = 3, 136, 108            # proc_bsdinfo.e_tdev: this user's processes only
+PATH_MAX_SIZE = 4096                              # PROC_PIDPATHINFO_MAXSIZE
+NODEV = -1
+S_IFCHR = 0o020000
+_where = []
+
+
+def is_app(path):
+    """An app's own executable, not a helper app inside another (Code Helper.app in VS Code's Frameworks: the windows
+    are the outer app's)."""
+    i = path.find(MAC_APP)
+    return i >= 0 and ".app/" not in path[:i]
+
+
+def walk_mac():
+    """-> (pid of the nearest ancestor that is an app or 0, controlling terminal of the nearest that has one or "")."""
+    import ctypes
+    import struct
+    lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+    lib.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+    lib.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+    lib.devname.argtypes = [ctypes.c_int32, ctypes.c_uint16]
+    lib.devname.restype = ctypes.c_char_p
+    short = ctypes.create_string_buffer(SHORTBSDINFO_SIZE)
+    info = ctypes.create_string_buffer(BSDINFO_SIZE)
+    path = ctypes.create_string_buffer(PATH_MAX_SIZE)
+    app, tab, pid, seen = 0, "", os.getpid(), set()
+    while pid > 1 and pid not in seen and len(seen) < 32 and not (app and tab):
+        seen.add(pid)
+        if lib.proc_pidinfo(pid, PROC_PIDT_SHORTBSDINFO, 0, short, SHORTBSDINFO_SIZE) != SHORTBSDINFO_SIZE:
+            break
+        if not tab and lib.proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, info, BSDINFO_SIZE) == BSDINFO_SIZE:
+            tdev = struct.unpack_from("<i", info.raw, TDEV_AT)[0]
+            if tdev != NODEV:
+                name = (lib.devname(tdev, S_IFCHR) or b"").decode("ascii", "ignore").lower()
+                tab = re.sub(r"[^a-z0-9]", "", name)[:16]
+        if not app and lib.proc_pidpath(pid, path, PATH_MAX_SIZE) > 0 and is_app(path.value.decode("utf-8", "ignore")):
+            app = pid
+        pid = struct.unpack_from("<I", short.raw, PPID_AT)[0]
+    return app, tab
+
+
+def where_mac():
+    """macOS -> (window, tab) of the "at" line: the pid of the nearest ancestor that is an app (the pets bring it
+    forward by its pid), 0 for none; its terminal's device ("ttys003"), "" for none.  This process first; read once."""
+    if not _where:
+        try:
+            _where.append(walk_mac())
+        except Exception:
+            _where.append((0, ""))
+    return _where[0]
 
 
 def window():
@@ -120,7 +188,9 @@ def window():
     that has a visible top-level window with a title (the terminal, the editor, the agent's desktop app).  In Git
     Bash's own window (mintty) the line of ancestors breaks (MSYS starts a program through a process gone by then,
     and its pseudo console's host is MSYS's too): then the Git Bash window in front (you just typed there), or the
-    only one there is (2026-11-15)."""
+    only one there is (2026-11-15).  On macOS: the nearest app's pid (where_mac)."""
+    if MAC:
+        return where_mac()[0]
     import ctypes
     from ctypes import wintypes
     k32, u32 = ctypes.windll.kernel32, ctypes.windll.user32

@@ -22,7 +22,8 @@ Sets     : frames/ (<dir>, 100 %), frames_hi/ (sibling of <dir>, one-time 300 % 
 Size     : state.json "scale" 0.5..3.0 (Ctrl+wheel over Clawd, menu 大小, event size:<pct>).
            Resized at once with the feet kept in place; ~1.5 s after the last change clawd_scale.py
            ("re-render" in the log) scales frames/ (at or below 100 %) or frames_hi/ (above) down to a native
-           set in frames_custom (hidden, below-normal priority, in a kill-on-close Job Object), which is
+           set in frames_custom (hidden, below-normal priority, in a kill-on-close Job Object; on macOS under nice, in
+           a process group of its own that is ended with it, and it stops by itself once the pet is gone), which is
            hot-swapped in.  No renderer: an install has no numpy (prerender.py only makes frames/ and frames_hi/).
            100 % and (with frames_hi/) 300 % are native: no re-render, frames_custom is deleted.
 IME      : disabled for this process (ImmDisableIME); else a third-party IME such as Sogou gets
@@ -123,6 +124,7 @@ Errors   : <home>/pet.log (size capped).
 Home     : <home> (default_home): CLAWD_HOME if set; this script's folder if a save (state.json, grow.json) is
            already there; else %APPDATA%\\Clawd, with the scaled frame sets (frames_custom*, render.log) beside
            this script if it can write there, else in %LOCALAPPDATA%\\Clawd.  --home DIR puts all of it in DIR.
+           On macOS ~/Library/Application Support/Clawd and ~/Library/Caches/Clawd, never inside RedCrab.app.
            frames/ and frames_hi/ stay beside this script.  A scaled set keeps its source's set_stamp and is
            scaled again when that changes (an update with new art).
 
@@ -166,6 +168,13 @@ import time
 import traceback
 import zlib
 
+MAC = sys.platform == "darwin"
+if MAC:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from clawd_mac import win32 as _mac_win32  # Win32 over AppKit: clawd_mac/README.md
+    _mac_win32.install()
+    from clawd_mac import system as macsys     # what the shim does not do: saves, login item, apps by pid, links
+
 # --------------------------------------------------------------------------- paths
 HERE = os.path.dirname(os.path.abspath(__file__))       # the program: scripts, frames/, frames_hi/
 BASE_FRAMES_DIR = os.path.join(HERE, "frames")
@@ -180,12 +189,17 @@ def default_home():
     whose folder holds only the program).  clawd.py, clawd_hook.py, clawd_album.pyw and clawd_dsh.mjs look the same
     way.  The cache (the frame sets scaled to other sizes) beside an %APPDATA% home is the program's folder when it
     can be written to (an install on D: leaves C: alone), else %LOCALAPPDATA%\\Clawd (an install for all users, in
-    Program Files); with any other home, the home itself."""
+    Program Files); with any other home, the home itself.  On macOS ~/Library/Application Support/Clawd and
+    ~/Library/Caches/Clawd (clawd_mac.system), and never inside RedCrab.app: a file written there breaks its
+    signature (so there no save is looked for, and its folder is not even tried for writing)."""
     h = os.environ.get("CLAWD_HOME")
     if h:
         return h, h
-    if any(os.path.exists(os.path.join(HERE, n)) for n in ("state.json", "grow.json")):
+    bundled = MAC and macsys.app_bundle(HERE) is not None
+    if not bundled and any(os.path.exists(os.path.join(HERE, n)) for n in ("state.json", "grow.json")):
         return HERE, HERE
+    if MAC:
+        return macsys.home_dir(), (HERE if not bundled and writable(HERE) else macsys.cache_dir())
     roam = os.environ.get("APPDATA") or os.path.expanduser("~")
     if writable(HERE):
         return os.path.join(roam, APP_DIR_NAME), HERE
@@ -962,6 +976,77 @@ def window_class(hwnd):
     return buf.value if hwnd and GetClassNameW(hwnd, buf, 64) else ""
 
 
+# A conversation's window, as its "at" line says it (clawd_hook.py): on Windows a window handle; on macOS the pid of
+# the app it runs in (where_mac), never one of the shim's handles (unrelated numbers), so there it goes to no window
+# call: the talk_window_* below say what each call means for an app.  Terminal and iTerm2 are what Windows Terminal is
+# (a tab can be chosen in them: TERMINAL_CLASS); the other terminals and every other app are brought forward whole.
+MAC_TAB_TERMINALS = {"com.apple.Terminal": "Terminal", "com.googlecode.iterm2": "iTerm2"}
+MAC_TERMINALS = ("com.mitchellh.ghostty", "com.github.wez.wezterm", "net.kovidgoyal.kitty", "org.alacritty",
+                 "dev.warp.", "co.zeit.hyper")         # bundle ids (their start): Ghostty, WezTerm, kitty, ..., Hyper
+MAC_TERMINAL_CLASS = "terminal"                      # (talk_window_class of one of those)
+MAC_TTY = re.compile(r"^ttys?[0-9]{1,6}$")             # an "at" line's tab on macOS: its terminal's device
+
+
+def talk_window_alive(w):
+    """IsWindow; on macOS: its app runs."""
+    if MAC:
+        return macsys.app_alive(w)
+    return IsWindow(w)
+
+
+def talk_window_class(w):
+    """window_class; on macOS: TERMINAL_CLASS (Terminal, iTerm2), MAC_TERMINAL_CLASS (another terminal) or the app's
+    bundle id ("" when it is gone): kept in talks.json, so a pid that is another app's by now is not taken back."""
+    if not MAC:
+        return window_class(w)
+    bid = macsys.app_bundle_id(w) or ""
+    if bid in MAC_TAB_TERMINALS:
+        return TERMINAL_CLASS
+    if bid.lower().startswith(tuple(t.lower() for t in MAC_TERMINALS)):
+        return MAC_TERMINAL_CLASS
+    return bid
+
+
+def talk_is_terminal(w):
+    """A terminal's window (its conversation stays there: no app link)."""
+    if MAC:
+        return talk_window_class(w) in (TERMINAL_CLASS, MAC_TERMINAL_CLASS)
+    return window_class(w) in TERMINAL_CLASSES
+
+
+def talk_terminal_name(w):
+    """The terminal whose tab a click chooses, as the texts name it."""
+    if MAC:
+        return MAC_TAB_TERMINALS.get(macsys.app_bundle_id(w) or "", "Terminal")
+    return "Windows Terminal"
+
+
+def talk_window_visible(w):
+    """IsWindowVisible; on macOS: its app runs (nothing of it is in a tray: activate_pid shows a hidden app again)."""
+    if MAC:
+        return macsys.app_alive(w)
+    return bool(user32.IsWindowVisible(w))
+
+
+def talk_window_show(w):
+    """A window its app hid (DeepSeek's, to its tray) shown again; on macOS there is none such (talk_window_visible)."""
+    if not MAC:
+        ShowWindow(w, SW_SHOW)
+
+
+def talk_window_restore(w):
+    """Minimised: back; on macOS activate_pid does that (talk_window_front)."""
+    if not MAC and IsIconic(w):
+        ShowWindow(w, SW_RESTORE)
+
+
+def talk_window_front(w):
+    """-> True if it was brought to the front; on macOS its app, all its windows (clawd_mac.system.activate_pid)."""
+    if MAC:
+        return macsys.activate_pid(w)
+    return SetForegroundWindow(w)
+
+
 def tab_shells():
     """The PowerShell programs to run clawd_tabs.ps1 with, best first.  Not found by PATH: pets started from Claude's
     desktop app have PowerShell 7's package folder first on it (C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_...),
@@ -979,6 +1064,55 @@ def tab_shells():
         if p.lower() not in [s.lower() for s in seen] and os.path.exists(p):
             seen.append(p)
     return seen
+
+
+# macOS: the tab of a terminal device chosen, its window to the front, by AppleScript (what clawd_tabs.ps1 "select"
+# is for Windows Terminal).  The device comes as the script's argument, never as part of the script.  Prints ok, or
+# gone (no such tab now); macOS asks the user once whether the pets may control that app (refused: error -1743).
+TAB_SCRIPTS_MAC = {
+    "com.apple.Terminal": """on run argv
+    tell application id "com.apple.Terminal"
+        repeat with w in windows
+            repeat with t in tabs of w
+                if tty of t is (item 1 of argv) then
+                    if miniaturized of w then set miniaturized of w to false
+                    set selected of t to true
+                    set index of w to 1
+                    activate
+                    return "ok"
+                end if
+            end repeat
+        end repeat
+    end tell
+    return "gone"
+end run""",
+    "com.googlecode.iterm2": """on run argv
+    tell application id "com.googlecode.iterm2"
+        repeat with w in windows
+            repeat with t in tabs of w
+                repeat with s in sessions of t
+                    if tty of s is (item 1 of argv) then
+                        select w
+                        select t
+                        select s
+                        activate
+                        return "ok"
+                    end if
+                end repeat
+            end repeat
+        end repeat
+    end tell
+    return "gone"
+end run"""}
+TAB_WAIT_MAC = 60.0         # s: the first time, macOS asks the user before the script may run (tab_done waits)
+
+
+def tab_osascript(bundle_id, tty):
+    """-> the osascript command that chooses the tab of this tty ("ttys013") in that terminal app, or None."""
+    script = TAB_SCRIPTS_MAC.get(bundle_id)
+    if script is None or not MAC_TTY.match(tty or ""):
+        return None
+    return ["/usr/bin/osascript", "-e", script, "/dev/" + tty]
 
 
 # Every agent the pets know, in one place (the agent's name is what its "at" lines say; clawd.py AGENTS installs them):
@@ -1001,12 +1135,48 @@ APP_EXES = {a["scheme"]: a["exes"] for a in AGENT_INFO.values()}          # a li
 KIND_AGENT = {k: name for name, a in AGENT_INFO.items() for k in a["kinds"]}
 
 
+def app_names(exes):
+    """macOS: the apps' names for their Windows programs ("deepseek harness.exe" -> "deepseek harness": the app's
+    executable or shown name, case not looked at; clawd_mac.system.find_app)."""
+    return [e[:-len(".exe")] if e.lower().endswith(".exe") else e for e in exes]
+
+
+OPEN_TIMEOUT = 15.0         # s: macOS, /usr/bin/open handing a link to its app
+
+
+def open_url(url):
+    """A page or an app's link (https:, claude:, codex:, dsh:, antigravity:) opened by the system: os.startfile, on
+    macOS /usr/bin/open (no shell).  OSError if it did not open."""
+    if not MAC:
+        os.startfile(url)
+        return
+    import subprocess
+    try:
+        r = subprocess.run(["/usr/bin/open", url], stdin=subprocess.DEVNULL, capture_output=True,
+                           timeout=OPEN_TIMEOUT, **child_kw())
+    except subprocess.SubprocessError as e:
+        raise OSError(str(e))
+    if r.returncode:
+        raise OSError((r.stderr or b"").decode("utf-8", "replace").strip() or "exit %d" % r.returncode)
+
+
+def child_kw(flags=0):
+    """A child process's Popen arguments: on Windows its creationflags; on macOS none (Python refuses them there) and
+    a session of its own, so a Ctrl+C or a closed terminal where the pets were started does not reach it."""
+    if MAC:
+        return {"start_new_session": True}
+    return {"creationflags": flags} if flags else {}
+
+
 def app_window(scheme):
     """The main window of the desktop app a claude://, codex:// or dsh:// link opens (by its program's name), or None.
-    The command-line programs of the same name have no window of their own, so they are never taken."""
+    The command-line programs of the same name have no window of their own, so they are never taken.  On macOS the
+    app's pid (a conversation's "window" there: talk_window_*)."""
     exes = APP_EXES.get(scheme)
     if not exes:
         return None
+    if MAC:
+        return macsys.find_app(app_names(exes))
     k32 = ctypes.windll.kernel32
     found = []
 
@@ -1036,6 +1206,8 @@ def app_running(scheme):
     exes = APP_EXES.get(scheme)
     if not exes:
         return False
+    if MAC:
+        return macsys.find_app(app_names(exes)) is not None
 
     class PE(ctypes.Structure):
         _fields_ = [("dwSize", ctypes.c_ulong), ("cntUsage", ctypes.c_ulong), ("th32ProcessID", ctypes.c_ulong),
@@ -2073,6 +2245,8 @@ class TalkTitles(object):
         # the Store build keeps them under Local\Claude-Data\<app> (Claude-3p: the build for other providers); an
         # install from the website keeps an Electron app's data under Roaming\Claude
         self.desk_roots = [os.path.join(local, d) for d in ("Claude-Data", "Claude-3p", "Claude")] + [os.path.join(roaming, "Claude")]
+        if MAC:                                # its data on macOS: ~/Library/Application Support/Claude
+            self.desk_roots = [os.path.join(home, "Library", "Application Support", "Claude")]
         self.projects = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude"), "projects")
         self.codex_home = os.environ.get("CODEX_HOME") or os.path.join(home, ".codex")
         self.codex_index = os.path.join(self.codex_home, "session_index.jsonl")
@@ -2620,8 +2794,18 @@ class ItemOverlay(object):
 
 
 # --------------------------------------------------------------------------- start with Windows
+AUTOSTART_WORDS = "open at login" if MAC else "start with Windows"      # (the log's)
+
+
+def autostart_label():
+    """The tray menu's item, in the system's own words."""
+    return tr("登录时打开", "Open at Login") if MAC else tr("开机自启", "Start with Windows")
+
+
 def autostart_command():
-    """pythonw and the player in the home folder (a trial copy started with --home registers the real one)."""
+    """pythonw and the player in the home folder (a trial copy started with --home registers the real one).  On
+    macOS the LaunchAgent's arguments (a list): clawd_mac.system.pet_command, as clawd.py's (RedCrab.app: its own
+    launcher)."""
     exe = sys.executable or "pythonw.exe"
     w = os.path.join(os.path.dirname(exe), "pythonw.exe")
     if os.path.exists(w):
@@ -2629,7 +2813,20 @@ def autostart_command():
     script = os.path.join(HOME_DIR, "clawd_pet.pyw")
     if not os.path.exists(script):
         script = os.path.abspath(__file__)
+    if MAC:
+        return macsys.pet_command(script, os.path.abspath(sys.executable or "/usr/bin/python3"))
     return '"%s" "%s"' % (exe, script)
+
+
+def set_autostart_mac(on):
+    """set_autostart on macOS: our LaunchAgent (clawd_mac.system), from the next login on, as the Run key.  Never
+    pointing into App Translocation (where Gatekeeper runs an app not yet moved out of Downloads: gone next time)."""
+    cmd = autostart_command()
+    if on and macsys.in_translocation(cmd[-1]):
+        log("open at login: not set, RedCrab.app runs from App Translocation (move it to Applications first)")
+        return
+    if not macsys.set_autostart(on, cmd):
+        log("open at login -> %s: %s not written" % (on, macsys.launch_agent_path()))
 
 
 def refresh_hooks():
@@ -2647,7 +2844,7 @@ def refresh_hooks():
         try:
             r = subprocess.run([exe if os.path.isfile(exe) else sys.executable, "-I", os.path.join(HERE, "clawd.py"),
                                 "hooks", "refresh"], stdin=subprocess.DEVNULL, capture_output=True, timeout=60,
-                               creationflags=CREATE_NO_WINDOW, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+                               env=dict(os.environ, PYTHONIOENCODING="utf-8"), **child_kw(CREATE_NO_WINDOW))
             log("hooks refresh: %s" % r.stdout.decode("utf-8", "replace").strip().replace("\n", " | "))
         except Exception:
             log_exc("hooks refresh")
@@ -2655,7 +2852,10 @@ def refresh_hooks():
 
 
 def autostart_enabled():
-    """Registered in HKCU Run and not switched off in Task Manager (StartupApproved: an odd first byte)."""
+    """Registered in HKCU Run and not switched off in Task Manager (StartupApproved: an odd first byte); on macOS:
+    our LaunchAgent is there."""
+    if MAC:
+        return macsys.autostart_enabled()
     import winreg
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_KEY) as k:
@@ -2674,6 +2874,9 @@ def autostart_enabled():
 
 def set_autostart(on):
     """On: our Run value (and Task Manager's 'disabled' mark gone); off: both removed, nothing left behind."""
+    if MAC:
+        set_autostart_mac(on)
+        return
     import winreg
     try:
         if on:
@@ -2691,7 +2894,7 @@ def set_autostart(on):
         except FileNotFoundError:
             pass
     except OSError:
-        log_exc("start with Windows -> %s" % on)
+        log_exc("%s -> %s" % (AUTOSTART_WORDS, on))
 
 
 # --------------------------------------------------------------------------- tray
@@ -2724,6 +2927,12 @@ class Tray(object):
     @staticmethod
     def _refresh_autostart():
         """The folder or Python moved: point the startup entry at where it runs now."""
+        if MAC:
+            if macsys.autostart_command() != autostart_command():
+                set_autostart(True)            # (not into App Translocation: set_autostart_mac says why)
+                if macsys.autostart_command() == autostart_command():
+                    log("open at login: entry updated to %s" % " ".join(autostart_command()))
+            return
         import winreg
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_KEY) as k:
@@ -2802,8 +3011,11 @@ class Tray(object):
         gift = next_gift(level)
         lv = " Lv.%d" % level + (tr(" · 下一份礼物 Lv.%d %s" % (gift[0], gift[2][0]), " · next gift at Lv.%d: %s" % (gift[0], gift[2][1]))
                                  if gift else tr(" · 满级", " · top level"))
-        tip = (tr("Clawd%s（已隐藏，点一下显示）" % lv, "Clawd%s (hidden, click to show)" % lv) if self.family.hidden
-               else tr("Clawd%s（点一下隐藏）" % lv, "Clawd%s (click to hide)" % lv))
+        if MAC:                                # a click on the menu-bar icon opens its menu: nothing to say of clicks
+            tip = tr("Clawd%s（已隐藏）" % lv, "Clawd%s (hidden)" % lv) if self.family.hidden else "Clawd%s" % lv
+        else:
+            tip = (tr("Clawd%s（已隐藏，点一下显示）" % lv, "Clawd%s (hidden, click to show)" % lv) if self.family.hidden
+                   else tr("Clawd%s（点一下隐藏）" % lv, "Clawd%s (click to hide)" % lv))
         if self.family.opts["home"]:
             tip += " [test]"
         return tip
@@ -2873,7 +3085,7 @@ class Tray(object):
                 AppendMenuW(menu, MF_POPUP, activity, tr("活跃度", "Activity"))
             AppendMenuW(menu, MF_STRING, ID_CONNECT, tr("连接 AI…", "Connect AI…"))
             AppendMenuW(menu, MF_STRING | (MF_CHECKED if autostart_enabled() else 0), ID_AUTOSTART,
-                        tr("开机自启", "Start with Windows"))
+                        autostart_label())
             AppendMenuW(menu, MF_STRING, ID_RELEASES, tr("去看看新版本", "Check for a new version"))
             AppendMenuW(menu, MF_SEPARATOR, 0, None)
             AppendMenuW(menu, MF_STRING, ID_QUIT, tr("退出", "Quit"))
@@ -2901,7 +3113,7 @@ class Tray(object):
         elif cmd == ID_AUTOSTART:
             on = not autostart_enabled()
             set_autostart(on)
-            log("start with Windows: %s" % ("on" if autostart_enabled() else "off"))
+            log("%s: %s" % (AUTOSTART_WORDS, "on" if autostart_enabled() else "off"))
         elif cmd == ID_RELEASES:
             open_page(RELEASES_URL)
         elif cmd == ID_QUIT:
@@ -2928,7 +3140,7 @@ def open_page(url):
 
     def go():
         try:
-            os.startfile(url)
+            open_url(url)
             log("opened %s" % url)
         except OSError as e:
             log("%s did not open (%s)" % (url, e))
@@ -3909,6 +4121,35 @@ def job_active_processes(job):
                                      ctypes.sizeof(info), None):
         return 0
     return info.ActiveProcesses
+
+
+# macOS: no Job Object.  The re-render runs under nice (what BELOW_NORMAL_PRIORITY_CLASS is), in a session (so a
+# process group) of its own, which stop_render_mac ends; and clawd_scale.py stops by itself once the pet is gone.
+RENDER_NICE = "10"
+RENDER_TERM_WAIT = 2.0      # s after SIGTERM before SIGKILL
+
+
+def start_render_mac(cmd, logf, env):
+    import subprocess
+    return subprocess.Popen(["/usr/bin/nice", "-n", RENDER_NICE] + cmd, stdin=subprocess.DEVNULL, stdout=logf,
+                            stderr=subprocess.STDOUT, cwd=HERE, env=env, **child_kw())
+
+
+def stop_render_mac(proc):
+    """Its process group: SIGTERM, and SIGKILL if it is still there RENDER_TERM_WAIT s later.  Only while proc has not
+    been waited for: its pid (the group's id) cannot have gone to another process yet."""
+    import signal
+    import subprocess
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            return
+        try:
+            proc.wait(RENDER_TERM_WAIT)
+            return
+        except subprocess.TimeoutExpired:
+            pass
 
 
 def remove_custom_sets(custom_dir, why):
@@ -5476,11 +5717,14 @@ class Pet(object):
         try:
             logf = open(self.render_log, "wb")
             env = dict(os.environ, PYTHONIOENCODING="utf-8")
-            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT,
-                                    cwd=HERE, env=env,
-                                    creationflags=CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
-                                    | CREATE_SUSPENDED)
-            job = run_in_job(proc)
+            if MAC:
+                proc, job = start_render_mac(cmd, logf, env), None
+            else:
+                proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT,
+                                        cwd=HERE, env=env,
+                                        creationflags=CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
+                                        | CREATE_SUSPENDED)
+                job = run_in_job(proc)
         except Exception:
             log_exc("starting re-render")
             if logf:
@@ -5497,7 +5741,10 @@ class Pet(object):
         t0 = time.perf_counter()
         try:
             running = job["proc"].poll() is None
-            if job["job"]:
+            if MAC:
+                if running:
+                    stop_render_mac(job["proc"])
+            elif job["job"]:
                 TerminateJobObject(job["job"], 1)
             elif running:                            # prerender's own job takes its workers along
                 job["proc"].kill()
@@ -6277,6 +6524,7 @@ class Family(object):
         self.tab_next = None                   # a reading waiting for the job under way
         self.tab_click = None                  # a click waiting for the readings
         self.tab_shells = None                 # PowerShell programs to run it with, best first (tab_shells())
+        self.tab_refused = False               # macOS: the user did not let the pets choose a tab (said once)
         self.talks = {}                        # session -> {"n": its number, "end": how its last turn ended, "seen"}
         self.talk_where = {}                   # session -> (its window or None, the agent's name), from its "at" line
         self.talk_entry = self.titles.entry    # session -> Claude Code's entrypoint, from its "at" line (TalkTitles)
@@ -6465,9 +6713,10 @@ class Family(object):
                 self.talk_wt[session] = more[3].lower()[:36]
             if len(self.talk_where) >= 64 and session not in self.talk_where:
                 self.talk_where.clear()
-            if where[0] and window_class(where[0]) == TERMINAL_CLASS:
+            if where[0] and not MAC and window_class(where[0]) == TERMINAL_CLASS:
                 # in Windows Terminal: the window you typed in is the one in front now (its windows are one process,
                 # so the hook cannot tell which), and the tab you typed in is its selected one: remember that tab
+                # (on macOS the hook says the tab itself, its terminal's device: talk_wt, _tab_of)
                 fg = GetForegroundWindow()
                 if fg and window_class(fg) == TERMINAL_CLASS:
                     where = (fg, where[1])
@@ -6503,7 +6752,7 @@ class Family(object):
             t = self.talks[session] = {"n": n, "end": None, "seen": now}
             log("conversation %s is number %d (%d now)" % (session, n, len(self.talks)))
             hwnd, agent = self.talk_where.get(session, (None, ""))
-            if hwnd and not IsWindow(hwnd):    # back, but the window it had is gone (a conversation resumed in a new
+            if hwnd and not talk_window_alive(hwnd):    # back, but the window it had is gone (resumed in a new
                 self.talk_where[session] = (None, agent)  # terminal): forget that window, not the circle; its "at" line
                 self.talk_tab.pop(session, None)          # says where it is now
         t["seen"] = now
@@ -6552,7 +6801,7 @@ class Family(object):
                     self.talk_entry[session] = rec[3][:24]
                 if len(rec) > 4 and isinstance(rec[4], str) and rec[4]:
                     self.talk_wt[session] = rec[4][:36]
-                if hwnd and not (isinstance(hwnd, int) and IsWindow(hwnd) and window_class(hwnd) == cls):
+                if hwnd and not (isinstance(hwnd, int) and talk_window_alive(hwnd) and talk_window_class(hwnd) == cls):
                     hwnd = None                # gone (or its handle is another window's now): the agent stays known
                 self.talk_where[session] = (hwnd or None, str(agent or "")[:16])
             except (TypeError, ValueError, OverflowError, ctypes.ArgumentError):
@@ -6560,7 +6809,8 @@ class Family(object):
         for session, rec in list(part("tab").items())[:64]:
             try:
                 hwnd, tab = rec
-                if isinstance(hwnd, int) and IsWindow(hwnd) and window_class(hwnd) == TERMINAL_CLASS and isinstance(tab, str):
+                if (isinstance(hwnd, int) and talk_window_alive(hwnd) and talk_window_class(hwnd) == TERMINAL_CLASS
+                        and isinstance(tab, str)):
                     self.talk_tab[str(session)] = (hwnd, tab)
             except (TypeError, ValueError, OverflowError, ctypes.ArgumentError):
                 log("talks.json: an odd tab for %s, passed over" % str(session)[:16])
@@ -6612,7 +6862,7 @@ class Family(object):
     def _places_save(self):
         self.places_saved = self._places_now()
         wall, now = time.time(), time.perf_counter()
-        d = {"where": {s: [w[0] or 0, w[1], window_class(w[0]) if w[0] else "", self.talk_entry.get(s, ""),
+        d = {"where": {s: [w[0] or 0, w[1], talk_window_class(w[0]) if w[0] else "", self.talk_entry.get(s, ""),
                            self.talk_wt.get(s, "")] for s, w in self.talk_where.items()},
              "tab": {s: [t[0], t[1]] for s, t in self.talk_tab.items()},
              "circles": {s: {"n": t["n"], "end": t.get("end"), "wait": bool(t.get("wait")),
@@ -6871,7 +7121,7 @@ class Family(object):
             for session, t in list(self.talks.items()):
                 hwnd = self.talk_where.get(session, (None, ""))[0]
                 why = None
-                if hwnd and not IsWindow(hwnd):
+                if hwnd and not talk_window_alive(hwnd):
                     info = AGENT_INFO.get(self.talk_agent(session, now), {})
                     if info.get("open") and app_running(info["scheme"]):
                         # its app closed the window but runs on in its tray (Antigravity with Keep In Menu Bar makes a
@@ -6973,6 +7223,9 @@ class Family(object):
                 if self.tab_job is None:
                     self._tab_after()
                 return
+        if MAC:
+            self._tab_run_mac(what, args)
+            return
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clawd_tabs.ps1")
         if self.tab_shells is None:
             self.tab_shells = tab_shells()
@@ -6996,10 +7249,48 @@ class Family(object):
                 log("tabs: %s %s started" % (what[0], " ".join(args[1:])))
             break
 
+    def _tab_run_mac(self, what, args):
+        """macOS: only clicks ("select", the app's pid, the tab's device: _tab_of): the AppleScript of that terminal
+        (tab_osascript) in the background, as the PowerShell run; tab_done reads what it said."""
+        import subprocess
+        pid, tty = int(args[1]), args[2]
+        cmd = tab_osascript(macsys.app_bundle_id(pid), tty)
+        if cmd is None:
+            log("tabs: no tab of %s to choose in app %d" % (tty, pid))
+            return
+        try:
+            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    **child_kw())
+        except OSError as e:
+            log("tabs: osascript did not start (%s)" % e)
+            return
+        self.tab_job = (what, proc, time.perf_counter(), args)
+        if self.opts.get("debug"):
+            log("tabs: %s %s started" % (what[0], " ".join(args[1:])))
+
+    def _tab_done_mac(self, session, pid, out, rc):
+        """macOS: what osascript said.  Refused (the user did not let the pets control that terminal: -1743, said in
+        the log once) or no such tab: the app is brought forward, as the click did already, and that is all."""
+        n = self.talks.get(session, {}).get("n")
+        if rc == 0 and out == "ok":
+            log("circle %s: tab selected" % n)
+            return
+        if "-1743" in out:
+            if not self.tab_refused:
+                self.tab_refused = True
+                log("tabs: macOS did not let the pets control the terminal (Automation refused, -1743): its window "
+                    "only (System Settings > Privacy & Security > Automation lets them)")
+        elif rc == 0 and out == "gone":
+            log("circle %s: tab not found: just its window" % n)
+        else:
+            log("tabs: osascript failed (exit %s: %s): just its window" % (rc, " ".join(out.split())[:160]))
+        if macsys.frontmost_pid() != pid:
+            talk_window_front(pid)
+
     def tab_done(self):
         what, proc, t0, args = self.tab_job
         if proc.poll() is None:
-            if time.perf_counter() - t0 > 10.0:
+            if time.perf_counter() - t0 > (TAB_WAIT_MAC if MAC else 10.0):
                 proc.kill()
                 log("tabs: %s took too long" % what[0])
                 self.tab_job = None
@@ -7008,6 +7299,10 @@ class Family(object):
         out = (proc.stdout.read() or b"").decode("utf-8", "ignore").strip()
         self.tab_job = None
         mode, session, hwnd = what
+        if MAC:
+            self._tab_done_mac(session, hwnd, out, proc.returncode)
+            self._tab_after()
+            return
         if proc.returncode and out not in ("ok", "gone") and not all(c.isdigit() or c == "." for c in out or "x"):
             # the PowerShell itself did not run (not "no such tab", not the script's own "error"): the next one
             bad = self.tab_shells.pop(0) if self.tab_shells else "?"
@@ -7060,8 +7355,8 @@ class Family(object):
         where = self.talk_where.get(session, (None, ""))
         agent = self.talk_agent(session, now)
         kind = self._claude_kind(session, now)
-        hwnd = where[0] if where[0] and IsWindow(where[0]) else None
-        term = bool(hwnd) and window_class(hwnd) in TERMINAL_CLASSES
+        hwnd = where[0] if where[0] and talk_window_alive(where[0]) else None
+        term = bool(hwnd) and talk_is_terminal(hwnd)
         if kind == "desk" and term:
             hwnd, term = None, False           # resumed in its desktop app since its terminal said where it was
         elif kind == "cli":
@@ -7082,8 +7377,8 @@ class Family(object):
         if not hwnd:
             w["code"] = "link-app" if link else "none"
             return w
-        hidden = not user32.IsWindowVisible(hwnd)
-        tab = self.talk_tab.get(session)
+        hidden = not talk_window_visible(hwnd)
+        tab = self._tab_of(session)
         if hidden and AGENT_INFO.get(agent, {}).get("hides"):
             code = "tray-show"                 # DeepSeek only hides its one window: shown again at once
         elif hidden:
@@ -7101,18 +7396,30 @@ class Family(object):
         w["code"] = code
         return w
 
+    def _tab_of(self, session):
+        """-> (window, tab) where this conversation was typed in last, or None: Windows Terminal's tab, read when its
+        message came (tab_run "selected"); on macOS the device its "at" line said (talk_wt: "ttys013"), in Terminal or
+        iTerm2 (the app of that line)."""
+        if not MAC:
+            return self.talk_tab.get(session)
+        pid, tty = self.talk_where.get(session, (None, ""))[0], self.talk_wt.get(session, "")
+        if pid and MAC_TTY.match(tty) and talk_window_class(pid) == TERMINAL_CLASS:
+            return (pid, tty)
+        return None
+
     def _way_text(self, w, zh=True):
         """What a click does, in a few words (talk_report; the log has the English)"""
         c, kind = w["code"], w["kind"]
         if c == "window" and kind in ("cli", "term"):
-            if window_class(w["hwnd"]) == TERMINAL_CLASS:
+            if talk_window_class(w["hwnd"]) == TERMINAL_CLASS:
                 return tr("拉它的终端窗口（标签还没记下：在那个标签里发一条消息就记下）",
                           "its terminal's window (its tab not known yet: a message sent in that tab tells)") if zh \
                     else "its terminal's window, its tab not known"
             return tr("拉它的终端窗口", "its terminal's window") if zh else "its terminal's window"
+        term = talk_terminal_name(w["hwnd"]) if c == "tab" else ""
         texts = {"none": ("它的窗口还不知道（它下一次发消息时记下）", "its window not known yet (its next message tells)"),
                  "link-app": ("打开它的链接（程序的窗口没找到）", "its link (its app's window not found)"),
-                 "tab": ("切到它在 Windows Terminal 里的标签", "its tab in Windows Terminal"),
+                 "tab": ("切到它在 %s 里的标签" % term, "its tab in %s" % term),
                  "window": ("拉它的窗口", "its window"),
                  "link": ("拉窗口，打开它的链接", "its window, and its link"),
                  "open": ("拉窗口（它就是桌面版里正开着的那个）", "its window (the conversation shown there already)"),
@@ -7130,7 +7437,8 @@ class Family(object):
             if kind == "desk" or (agent == "codex" and kind != "term"):
                 where = say("桌面版", "desktop app")
             else:
-                where = say("终端", "terminal") + (" (Windows Terminal)" if w["hwnd"] and window_class(w["hwnd"]) == TERMINAL_CLASS else "")
+                tabs = w["hwnd"] and talk_window_class(w["hwnd"]) == TERMINAL_CLASS
+                where = say("终端", "terminal") + (" (%s)" % talk_terminal_name(w["hwnd"]) if tabs else "")
             return "%s %s" % (label if agent else "Claude", where)
         return label
 
@@ -7150,12 +7458,11 @@ class Family(object):
         if code == "tray-show":
             # DeepSeek: showing that window is all dsh://open would do, without starting a second copy of the app to
             # pass it on (about 2 s; 用户: slow)
-            ShowWindow(hwnd, SW_SHOW)
-            shown = bool(user32.IsWindowVisible(hwnd))
-        hidden = not user32.IsWindowVisible(hwnd)     # closed to the tray (its app still runs): only it can show it again
-        if IsIconic(hwnd):
-            ShowWindow(hwnd, SW_RESTORE)
-        ok = False if hidden else SetForegroundWindow(hwnd)
+            talk_window_show(hwnd)
+            shown = talk_window_visible(hwnd)
+        hidden = not talk_window_visible(hwnd)     # closed to the tray (its app still runs): only it can show it again
+        talk_window_restore(hwnd)
+        ok = False if hidden else talk_window_front(hwnd)
         log("circle %s (%s) clicked: window %d %s" % (n, session, hwnd, "hidden (in the tray)" if hidden
                                                     else ("shown from the tray, " if shown else "") + "to the front"
                                                     + ("" if ok else " (refused)")))
@@ -7225,7 +7532,7 @@ class Family(object):
                 while True:
                     link_, n_ = self.link_q.get()
                     try:
-                        os.startfile(link_)
+                        open_url(link_)
                         log("circle %s: opened %s" % (n_, link_))
                     except OSError as e:
                         log("circle %s: %s did not open (%s)" % (n_, link_, e))
@@ -9000,7 +9307,8 @@ class Family(object):
         exe = sys.executable or "pythonw.exe"
         w = os.path.join(os.path.dirname(exe), "pythonw.exe")
         subprocess.Popen([w if os.path.exists(w) else exe, script, "--home", HOME_DIR, "--frames-dir", self.opts["frames_dir"] or BASE_FRAMES_DIR],
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+                         **child_kw())
         log("album: opened (%s)" % why)
         self.album_recheck = time.perf_counter() + 5.0
 
@@ -9011,7 +9319,8 @@ class Family(object):
             exe = sys.executable or "pythonw.exe"
             w = os.path.join(os.path.dirname(exe), "pythonw.exe")
             subprocess.Popen([w if os.path.exists(w) else exe, os.path.join(HERE, "clawd_connect.pyw"), "--home", HOME_DIR],
-                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+                             **child_kw())
             log("connect: opened (%s)" % why)
         except Exception:
             log_exc("opening the connect window")

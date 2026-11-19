@@ -4123,8 +4123,11 @@ def _kernel32():
 
 
 def bind_children_to_this_process():
-    """Put this process in a kill-on-close job before any worker exists, so workers cannot outlive it."""
+    """Put this process in a kill-on-close job before any worker exists, so workers cannot outlive it.
+    Windows only: elsewhere a pool's workers end with it (multiprocessing stops them when the parent goes)."""
     global _job_handle
+    if sys.platform != 'win32':
+        return
     k = _kernel32()
     job = k.CreateJobObjectW(None, None)
     info = _JobExtendedLimits()
@@ -4137,6 +4140,9 @@ def bind_children_to_this_process():
 
 
 def set_low_priority():
+    if sys.platform != 'win32':
+        os.nice(10)                  # about what BELOW_NORMAL_PRIORITY_CLASS is on Windows
+        return
     k = _kernel32()
     k.SetPriorityClass(k.GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS)
 
