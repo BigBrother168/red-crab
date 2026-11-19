@@ -6,7 +6,7 @@
 
 **Works with 4 AI coding agents:** Claude Code · Codex · DeepSeek Harness · Antigravity
 
-Windows only · Free and open source · Offline, uses none of your AI quota
+Windows and macOS · Free and open source · Offline, uses none of your AI quota
 
 [Download](../../releases) · [How to Play](GUIDE.en.md) · [中文](README.md)
 
@@ -99,21 +99,60 @@ Just want to play? See [How to Play](GUIDE.en.md). This document describes the c
 - [All features](#all-features)
 - [How the hooks connect](#how-the-hooks-connect)
 - [Files and runtime data](#files-and-runtime-data)
+- [The macOS port](#the-macos-port)
 
 ## Getting started
 
 ### Installing
 
-Download `RedCrab-Setup-<version>.exe` and run it: Python comes with it, nothing else to install, no admin rights needed. You choose where it goes (any drive); the default is `%LOCALAPPDATA%\Programs\RedCrab`. Choosing "install for all users" asks for admin rights and can put it in Program Files. It starts when done; the Start menu has "Red Crab".
+**Windows:** download `RedCrab-Setup-<version>.exe` and run it: Python comes with it, nothing else to install, no admin rights needed. You choose where it goes (any drive); the default is `%LOCALAPPDATA%\Programs\RedCrab`. Choosing "install for all users" asks for admin rights and can put it in Program Files. It starts when done; the Start menu has "Red Crab".
 
 - **Updating:** run the new version's installer. It installs into the same folder, has the pets quit first and starts them again afterwards. The save and the connected AIs stay as they are.
 - **Moving it:** uninstall, then install to the new place; the save is kept.
 - The installer is not signed, so Windows may say "Windows protected your PC": click "More info", then "Run anyway".
-- **Mac, Linux:** not supported. You are welcome to port it from the source: the frames, the art, the growth system and the hooks carry over; what needs rewriting is the Windows-only part: the pet windows, the tray icon, finding a conversation's window and jumping to it from a circle.
+- **Mac:** see [Installing and using on macOS](#installing-and-using-on-macos) below.
+- **Linux:** not supported. You are welcome to port it from the source: the frames, the art, the growth system and the hooks carry over; what needs rewriting is the part that deals with the system: the pet windows, the tray icon, finding a conversation's window and jumping to it from a circle (for how the Mac version does it, see [The macOS port](#the-macos-port)).
+
+### Installing and using on macOS
+
+macOS 11 or later, on Apple silicon or Intel, each with its own file: `RedCrab-<version>-macOS-arm64.dmg` (Apple silicon) and `RedCrab-<version>-macOS-x86_64.dmg` (Intel).
+
+- **Installing:** open the .dmg, drag `RedCrab.app` to Applications and open it from there. Python comes with it, nothing else to install.
+- **The first time:** the app is not notarized by Apple (it is only ad-hoc signed), so macOS stops it. Double-click it once, then in System Settings → Privacy & Security click "Open Anyway" (on macOS 14 and earlier, Control-click it (or right-click) → Open → Open also works); or in Terminal run:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/RedCrab.app
+  ```
+
+- **Move it to Applications first:** opened straight from the .dmg or from Downloads, macOS runs it from a temporary place (App Translocation), and Connect AI and Open at Login refuse to install anything. Move it to Applications, then open it.
+
+Where it differs from Windows:
+
+- **Menu-bar icon:** the tray icon is in the menu bar at the top of the screen. A click opens its menu: Hide / Show, Album, Activity, Connect AI…, Open at Login, Check for a new version, Quit. Option-click hides / shows at once.
+- **Mouse:** right-click or Control-click a pet for its menu; Control + scroll (or Command + scroll) over a pet resizes them.
+- **Open at Login:** what Start with Windows is on Windows. Turned on, it adds a LaunchAgent: `~/Library/LaunchAgents/io.github.bigbrother168.redcrab.plist`.
+- **The save:** in `~/Library/Application Support/Clawd`; the frames scaled to each pet's size in `~/Library/Caches/Clawd`.
+- **Jumping from a circle:** the Claude and Codex desktop apps open the conversation by their `claude://` and `codex://` links; Claude Code in Terminal.app or iTerm2 gets its very tab (found by the tab's tty). The first time, macOS asks whether Red Crab may control Terminal / iTerm: allow it, or only the app comes to the front. Other terminals and editors (Ghostty, WezTerm, kitty, Alacritty, Warp, VS Code, ...) come to the front.
+- **The `clawd` command:** the app has its own Python. Put this line in `~/.zshrc`:
+
+  ```bash
+  alias clawd='/Applications/RedCrab.app/Contents/Resources/python/bin/python3 -I /Applications/RedCrab.app/Contents/Resources/app/clawd.py'
+  ```
+
+  then the commands are the same as on Windows, see [Commands](#commands).
+- **Removing it:** `clawd uninstall` (takes out every agent's hooks and Open at Login; the save stays and it says where: delete `~/Library/Application Support/Clawd` and `~/Library/Caches/Clawd` if you don't want it), quit, then drag `RedCrab.app` to the Trash.
+
+The same as on Windows: the pets, the actions, growth, the combos, the album, the hooks for the four agents, the event file and every `clawd` command.
+
+Known limits on macOS:
+
+- Not notarized: the first open needs letting through as above.
+- The album and the Connect AI window show as their own small app.
+- On a screen whose scale differs from the main screen's, the pets look slightly soft.
 
 ### Running from source
 
-- Windows.
+- Windows, or macOS 11 or later (see "On macOS" below).
 - Python 3.12 (64-bit, with Tk). The player uses the standard library only; the tests in `tools\` expect Python in `C:\Python312`.
 - The frame folders `frames\` and `frames_hi\`. They are not in git: the renderer makes them. It needs `requirements.txt` (numpy, pillow) in `.venv`:
 
@@ -125,6 +164,17 @@ Download `RedCrab-Setup-<version>.exe` and run it: Python comes with it, nothing
   ```
 
 - Start it: `python clawd.py` (the first start opens the Connect AI window).
+
+- **On macOS:** Python 3.12, and `requirements-mac.txt` (PyObjC) as well. The frames are rendered with `prerender.py` as on Windows; the few letters in the frames use the system's Hiragino Sans GB and Kaiti SC or Songti SC instead of YaHei and KaiTi:
+
+  ```bash
+  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-mac.txt
+  .venv/bin/python prerender.py --body-px 100 --out frames --no-preview
+  .venv/bin/python prerender.py --body-px 300 --out frames_hi --no-preview
+  .venv/bin/python clawd_pet.pyw
+  ```
+
+  Tests: `.venv/bin/pip install pytest && .venv/bin/python -m pytest clawd_mac/tests`.
 
 - The commands below take the code to be in `E:\clawd` and Python in `C:\Python312`: put in your own places. The programs find their paths from where they are, so any folder works; before moving it, run `hooks off` for each agent you connected, and `on` again afterwards.
 
@@ -144,7 +194,7 @@ It backs up `~/.claude/settings.json` first, then adds 17 hooks (each writes a w
 
 | Agent | How | Where it goes | What does not show | A click on its circle |
 |---|---|---|---|---|
-| Claude Code | `clawd hooks on` | `~/.claude/settings.json`, 17 hooks | —— | The desktop app: that conversation; Windows Terminal: that tab; other terminals: the window |
+| Claude Code | `clawd hooks on` | `~/.claude/settings.json`, 17 hooks | —— | The desktop app: that conversation; Windows Terminal, and Terminal.app or iTerm2 on a Mac: that tab; other terminals: the window |
 | Codex | `clawd hooks on codex`, then trust them in Codex (`/hooks` in the CLI, Settings > Hooks in the app) | `~/.codex/hooks.json`, 12 hooks | Reading files, the web, a tool failing, its own background jobs (not your conversations) | The desktop app: that conversation; a terminal: the window |
 | DeepSeek Harness | `clawd hooks on deepseek`, then restart DeepSeek | The plugin `clawd_dsh.mjs` (loaded by a few lines at the end of `~/.dsh/profiles/desktop/cordis.patch.yml`) | Compacting | Its window (no link to one conversation) |
 | Antigravity | `clawd hooks on antigravity`; new conversations pick it up | A `"clawd"` entry in `~/.gemini/config/hooks.json`, 4 hooks | Your turn, a sub-agent sent, compacting, a conversation's end; a tool shows when it is done | Its window (likewise), brought back from the tray |
@@ -153,7 +203,7 @@ It backs up `~/.claude/settings.json` first, then adds 17 hooks (each writes a w
 
 ### Commands
 
-`clawd ...` below is short for `python clawd.py ...`: from source, `C:/Python312/python.exe E:/clawd/clawd.py ...` (a `clawd` function in your PowerShell profile saves typing); an installed copy has it as `python\python.exe clawd.py ...` in its folder.
+`clawd ...` below is short for `python clawd.py ...`: from source, `C:/Python312/python.exe E:/clawd/clawd.py ...` (a `clawd` function in your PowerShell profile saves typing); an installed copy has it as `python\python.exe clawd.py ...` in its folder; on a Mac see [Installing and using on macOS](#installing-and-using-on-macos).
 
 | Command | What it does |
 |---|---|
@@ -169,7 +219,7 @@ It backs up `~/.claude/settings.json` first, then adds 17 hooks (each writes a w
 | `clawd status` | Show whether it is running, whether it is hidden, and the family's level (see "Growth") |
 | `clawd circles` | List the conversations' circles: which conversation each is, desktop app or terminal, where a click goes (look here first when a click does not get there) |
 | `clawd activity quiet` / `normal` / `lively` | Activity: quiet / normal / lively; with no argument, show the current one |
-| `clawd autostart on` / `off` | Start with Windows on / off (like the tray menu's `Start with Windows`); with no argument, show the current state |
+| `clawd autostart on` / `off` | Start with Windows on / off (like the tray menu's `Start with Windows`; Open at Login on a Mac); with no argument, show the current state |
 | `clawd lang en` / `zh` | Switch the language (English / Chinese); with no argument, show the current one |
 | `clawd hooks on` / `off` / `status` `[claude\|codex\|deepseek\|antigravity]` | Install, remove or list the hooks (a plugin for DeepSeek); without an agent it is Claude Code |
 | `clawd connect` | Open the Connect AI window (like `Connect AI…` in the right-click and the tray menu) |
@@ -190,8 +240,8 @@ The interface comes in Chinese and English. The menu's `语言 / Language` and `
 | Drag / let go | Dangles / lands; near a screen edge it glides over to sit flush against it |
 | Drag and fling, letting go while still moving | Thrown: it tumbles head over heels, bounces off the sides and the top, falls to the bottom line and bounces twice, sits dizzy with stars going round, then gets up; family members nearby come over and pat it. Click it in the air to catch it; a plain click lets it fall on |
 | Drop one pet on another | High five; dropped on the head of a bigger one: a tower |
-| Ctrl + mouse wheel | The whole family gets bigger or smaller |
-| Right-click | Menu |
+| Ctrl + mouse wheel (on a Mac Control or Command + scroll) | The whole family gets bigger or smaller |
+| Right-click (on a Mac Control-click too) | Menu |
 
 **Right-click menu:**
 
@@ -215,7 +265,7 @@ Clicks on the transparent parts of the window go through to the program below, a
 
 ### Tray icon
 
-There is a small Clawd icon at the right end of the taskbar (Windows 11 may put it under `^` at first; you can drag it out).
+There is a small Clawd icon at the right end of the taskbar (Windows 11 may put it under `^` at first; you can drag it out). On a Mac it is in the menu bar, see [Installing and using on macOS](#installing-and-using-on-macos).
 
 - **Click:** the whole family hides; click again and it shows. The icon is dimmed while they are hidden.
 - **Right-click:** `Hide` / `Show`, `Back to the corner`, `Album`, `Activity`, `Connect AI…`, `Start with Windows` (ticked = on), `Check for a new version` (opens the GitHub releases page in your browser; the pet itself never goes online or checks by itself), `Quit`.
@@ -228,7 +278,7 @@ While hidden nothing is drawn; it only keeps reading the agents' events, using e
 
 - Close: right-click `Quit`, the tray icon's `Quit`, or `clawd off`. To have them out of sight without closing, click the tray icon to hide them.
 - Disconnect one agent: untick it in the Connect AI window, or `clawd hooks off` (Claude Code), `clawd hooks off codex` and so on. Only what we added is removed; other hooks are left alone.
-- Take it all out: an installed copy is uninstalled as "Red Crab" in Windows Settings → Apps: it quits, removes every agent's hooks and the start with Windows, then asks whether to delete the save too (no by default). From source: `clawd uninstall`; the save stays.
+- Take it all out: an installed copy is uninstalled as "Red Crab" in Windows Settings → Apps: it quits, removes every agent's hooks and the start with Windows, then asks whether to delete the save too (no by default). From source: `clawd uninstall`; the save stays. On a Mac see [Installing and using on macOS](#installing-and-using-on-macos).
 
 ## All features
 
@@ -584,9 +634,10 @@ Claude Code sessions that are already open use the new configuration without a r
 | `clawd_hook.py`, `clawd_dsh.mjs` | The script every agent's hooks write their words with (Antigravity's table is in it too); DeepSeek Harness's plugin |
 | `clawd_album.pyw`, `clawd_album_hints.py` | The album window, and the riddles of its cells (Chinese and English) |
 | `clawd_connect.pyw` | The Connect AI window |
-| `clawd_scale.py` | On a resize, scales the 100 % or 300 % frames to each pet's size (only Windows' own GDI+, no renderer) |
+| `clawd_scale.py` | On a resize, scales the 100 % or 300 % frames to each pet's size (on Windows only the system's own GDI+, on a Mac Quartz; no renderer) |
 | `prerender.py`, `renderer\` | The renderer and the character's art code, only to make `frames\` and `frames_hi\` |
-| `installer\` | Packaging: `build.py` (gathers the program, the frames, an embedded Python with Tk, runs Inno Setup), `redcrab.iss` (install, update, uninstall) |
+| `installer\` | Packaging: `build.py` (gathers the program, the frames, an embedded Python with Tk, runs Inno Setup), `redcrab.iss` (install, update, uninstall); `build_mac.py` (the Mac's `RedCrab.app` and .dmg) |
+| `clawd_mac\` | On a Mac, takes the pets' Win32 and GDI+ calls in Windows' place (AppKit, Quartz), see [The macOS port](#the-macos-port) |
 | `tools\` | Tests and art tools (the tests expect Python in `C:\Python312`) |
 | `docs\media\` | The README's pictures |
 | `frames\`, `frames_hi\` | Frames at 100 % and 300 %, not in git |
@@ -599,9 +650,17 @@ Claude Code sessions that are already open use the new configuration without a r
 | `ag_turns.json` | Which Antigravity conversations are in a turn |
 | `pet.log`, `pet.log.1` | The log (rolled over to `.1` when full). `exit: menu` means quit from the menu, not a failure |
 
-The runtime data from `event` on lives in `%APPDATA%\Clawd`; the program folder holds only the program, so a reinstall or an update keeps the save. If the program folder already has a save (`state.json` or `grow.json`, the old way of running from source), the data and `frames_custom*` stay in the program folder. The environment variable `CLAWD_HOME` can point elsewhere (for tests).
+The runtime data from `event` on lives in `%APPDATA%\Clawd` (on a Mac in `~/Library/Application Support/Clawd`, and `frames_custom*` in `~/Library/Caches/Clawd`); the program folder holds only the program, so a reinstall or an update keeps the save. If the program folder already has a save (`state.json` or `grow.json`, the old way of running from source), the data and `frames_custom*` stay in the program folder. The environment variable `CLAWD_HOME` can point elsewhere (for tests).
 
 Used outside the program: Python (an installed copy brings its own), the configuration of each agent you connected (`~/.claude/settings.json` and so on), system fonts.
+
+## The macOS port
+
+The Mac version runs the same program. The package `clawd_mac\` takes the pets' Win32 calls on a Mac and serves them with AppKit; GDI+ becomes Quartz. How it is designed and what each file holds: [clawd_mac/README.md](clawd_mac/README.md).
+
+- **Building:** `python installer/build_mac.py --version 1.0.0` (needs `frames/` and `frames_hi/`) makes `build/RedCrab-1.0.0-macOS-<arch>.dmg`, with `RedCrab.app` in it.
+- **GitHub Actions:** the `macOS` workflow runs the tests on every push and pull request, then builds an arm64 .dmg (kept as an artifact); the `Build` workflow, run by hand, also makes the arm64 and Intel .dmg files next to Setup.exe.
+- Linux is still not supported.
 
 ## License
 

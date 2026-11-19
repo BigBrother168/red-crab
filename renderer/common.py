@@ -1,5 +1,5 @@
 # Shared constants/helpers. Logical canvas is 1920x1080; everything is drawn at output scale S = OUT_W/1920.
-import os, math, hashlib, json
+import os, sys, glob, math, hashlib, json
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
@@ -13,6 +13,21 @@ FONTS = {
     'yaheib': os.path.join(FONT_DIR, 'msyhbd.ttc'),
     'hei': os.path.join(FONT_DIR, 'simhei.ttf'),
 }
+
+
+def _mac_fonts():
+    """The nearest faces macOS ships, as (file, face index): Kaiti SC is a downloadable font (in AssetsV2 once
+    something asked for it), else Songti SC; Hiragino Sans GB W3 / W6 for YaHei and its bold; STHeiti for SimHei."""
+    sysf = '/System/Library/Fonts'
+    kai = sorted(glob.glob('/System/Library/AssetsV2/com_apple_MobileAsset_Font*/*/AssetData/Kaiti.ttc'))
+    kai = (kai[0], 0) if kai else (os.path.join(sysf, 'Supplemental', 'Songti.ttc'), 3)
+    hiragino = os.path.join(sysf, 'Hiragino Sans GB.ttc')
+    return {'kai': kai, 'stkai': kai, 'yahei': (hiragino, 0), 'yaheib': (hiragino, 2),
+            'hei': (os.path.join(sysf, 'STHeiti Medium.ttc'), 0)}
+
+
+if sys.platform == 'darwin':
+    FONTS = _mac_fonts()
 # chalk colours (on dark slate)
 CH = {
     'w': (240, 238, 228), 'y': (255, 214, 102), 'p': (255, 158, 170), 'b': (140, 200, 255),
@@ -40,7 +55,8 @@ _font_cache = {}
 def font(name, size_px):
     key = (name, int(size_px))
     if key not in _font_cache:
-        _font_cache[key] = ImageFont.truetype(FONTS[name], max(6, int(size_px)))
+        path, index = FONTS[name] if isinstance(FONTS[name], tuple) else (FONTS[name], 0)
+        _font_cache[key] = ImageFont.truetype(path, max(6, int(size_px)), index=index)
     return _font_cache[key]
 
 

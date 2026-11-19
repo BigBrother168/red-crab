@@ -11,7 +11,8 @@ GDI+ through ctypes, high-quality bicubic on premultiplied BGRA (as the pets' ow
 Every length in px of the manifest is scaled: the canvas, the feet anchor, the sign's place ("top"), the treasure's
 place in a clip ("item" x, y; its scale per mille stays), the treasure's box and the glows' sizes; the treasures' and
 the glows' own loops are scaled too.  Frames that repeat in a clip are scaled once.  Exit 0 when done; on an error
-the traceback goes to stdout (the pets keep it in render.log) and the exit code is 1.
+the traceback goes to stdout (the pets keep it in render.log) and the exit code is 1.  On macOS, exit 3 (with a line
+on stdout) as soon as the pet that started it is gone: what the pet's kill-on-close Job Object does on Windows.
 Record format of *.frames (as prerender.py): uint32 LE length L, then zlib.compress(raw) (L bytes), raw being the
 whole canvas, premultiplied BGRA, top-down.
 """
@@ -27,6 +28,9 @@ import traceback
 import zlib
 
 ZLEVEL = 6                     # the pets inflate one frame a tick; 9 is several times slower here and barely smaller
+PARENT_GONE = 3                # macOS: the exit code when the pet that started this went away
+LAUNCHD = 1                    # macOS: the parent of a process whose own parent is gone
+_parent = []                   # macOS: the pid of the pet that started this, as it was at the start
 
 PixelFormat32bppPARGB = 0x000E200B
 CompositingModeSourceCopy = 1
@@ -48,7 +52,13 @@ class Shrinker(object):
     graphics are made once per size and reused."""
 
     def __init__(self):
-        dll = ctypes.WinDLL("gdiplus")
+        if sys.platform == "darwin":           # GDI+ over Quartz (clawd_mac/gdiplus.py); run with -I: our folder
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            from clawd_mac import gdiplus as dll
+        else:
+            dll = ctypes.WinDLL("gdiplus")
         P, PP, I, F = ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_int, ctypes.c_float
 
         def api(name, args):
@@ -113,6 +123,24 @@ class Shrinker(object):
         return bytes(self.dst_buf)
 
 
+class ParentGone(Exception):
+    pass
+
+
+def watch_parent():
+    """macOS: no Job Object takes this along when the pet that started it ends however it ends (killed, crashed), so
+    this looks for itself: its parent is remembered now and looked at between frames (check_parent).  A parent that is
+    launchd already: the pet went before this even started."""
+    if sys.platform == "darwin":
+        _parent.append(os.getppid())
+        check_parent()
+
+
+def check_parent():
+    if _parent and (os.getppid() != _parent[0] or _parent[0] == LAUNCHD):
+        raise ParentGone("the pet that started this (pid %d) is gone" % _parent[0])
+
+
 def read_records(path):
     with open(path, "rb") as fh:
         data = fh.read()
@@ -132,6 +160,7 @@ def scale_file(sh_, src, dst, sw, sh, dw, dh, f):
     done = {}
     parts = []
     for blob in read_records(src):
+        check_parent()
         z = done.get(blob)
         if z is None:
             z = zlib.compress(sh_.shrink(zlib.decompress(blob), sw, sh, dw, dh, f), ZLEVEL)
@@ -267,7 +296,11 @@ def main(argv):
         return 2
     t0 = time.time()
     try:
+        watch_parent()
         scale_set(os.path.abspath(args["--src"]), float(args["--body-px"]), os.path.abspath(args["--out"]))
+    except ParentGone as e:
+        print("%s: stopped after %.1f s" % (e, time.time() - t0))
+        return PARENT_GONE
     except Exception:
         traceback.print_exc(file=sys.stdout)
         return 1

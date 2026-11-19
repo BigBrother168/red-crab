@@ -1,0 +1,69 @@
+# RedCrab.app in a .dmg (installer/build_mac.py): renders the frames (they are not in git, so they are cached by what
+# makes them) and builds the app for one architecture.  Called by build.yml (by hand) and macos.yml (every push).
+name: macOS app
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version in the file name and Info.plist"
+        type: string
+        required: true
+      runner:
+        description: "macOS runner label"
+        type: string
+        default: macos-26
+      arch:
+        description: "arm64 or x86_64 (the runner's)"
+        type: string
+        default: arm64
+      retention-days:
+        type: number
+        default: 7
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+
+      - uses: actions/cache@v4
+        id: frames
+        with:
+          path: |
+            frames
+            frames_hi
+          key: frames-${{ runner.os }}-${{ inputs.arch }}-${{ hashFiles('prerender.py', 'renderer/**', 'requirements.txt') }}
+
+      - name: Renderer
+        if: steps.frames.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+
+      - name: Frames (100 % and 300 %)
+        if: steps.frames.outputs.cache-hit != 'true'
+        run: |
+          .venv/bin/python prerender.py --body-px 100 --out frames --no-preview
+          .venv/bin/python prerender.py --body-px 300 --out frames_hi --no-preview
+
+      - name: RedCrab.app and .dmg
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ inputs.arch }}
+        run: python installer/build_mac.py --version "$VERSION" --arch "$ARCH" --out build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RedCrab-macOS-${{ inputs.arch }}
+          path: build/RedCrab-*-macOS-*.dmg
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}

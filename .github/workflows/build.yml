@@ -1,6 +1,7 @@
-# Setup.exe: renders the frames (they are not in git) and builds the installer.  Run by hand (Actions → Build →
-# Run workflow); the file is kept as an artifact for a few days.  Releases are made by hand with an installer that
-# was tried first, so a tag does not start this (it could replace the release's file).
+# Setup.exe and the macOS .dmg (RedCrab.app, arm64 and x86_64; macos-app.yml): render the frames (they are not in git)
+# and build the installers.  Run by hand (Actions → Build → Run workflow); the files are kept as artifacts for a few
+# days.  Releases are made by hand with an installer that was tried first, so a tag does not start this (it could
+# replace the release's file).
 name: Build
 
 on:
@@ -46,3 +47,18 @@ jobs:
           name: Setup
           path: build/RedCrab-Setup-*.exe
           retention-days: 7
+
+  mac:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-26
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    uses: ./.github/workflows/macos-app.yml
+    with:
+      version: ${{ inputs.version }}
+      runner: ${{ matrix.runner }}
+      arch: ${{ matrix.arch }}
+      retention-days: 7

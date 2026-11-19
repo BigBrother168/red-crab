@@ -22,11 +22,15 @@ import { fileURLToPath } from 'node:url'
 export const name = 'clawd-pet'
 
 // where the pets read their events, found as clawd_pet.pyw finds it (default_home): CLAWD_HOME; this folder if a
-// save is already here (a copy run from source); else %APPDATA%\Clawd (an install)
+// save is already here (a copy run from source); else %APPDATA%\Clawd (an install); on macOS
+// ~/Library/Application Support/Clawd, and never inside RedCrab.app (the pet never writes there)
 function dataHome() {
   if (process.env.CLAWD_HOME) return process.env.CLAWD_HOME
   const here = dirname(fileURLToPath(import.meta.url))
-  if (existsSync(join(here, 'state.json')) || existsSync(join(here, 'grow.json'))) return here
+  const mac = process.platform === 'darwin'
+  const bundled = mac && (here + '/').includes('.app/Contents/')
+  if (!bundled && (existsSync(join(here, 'state.json')) || existsSync(join(here, 'grow.json')))) return here
+  if (mac) return join(homedir(), 'Library', 'Application Support', 'Clawd')
   return join(process.env.APPDATA || homedir(), 'Clawd')
 }
 

@@ -18,16 +18,26 @@ except Exception:
 
 HERE = os.path.dirname(os.path.abspath(__file__))       # the program
 HERE_FWD = HERE.replace("\\", "/")           # for commands run by bash
+MAC = sys.platform == "darwin"
+if MAC:                                      # what differs on macOS: clawd_mac/
+    if HERE not in sys.path:                 # (python -I leaves this folder off sys.path)
+        sys.path.insert(0, HERE)
+    from clawd_mac import lock as maclock
+    from clawd_mac import system as macsys
 
 
 def data_home():
     """What the pets keep (event, state, saves): found as clawd_pet.pyw finds it (default_home): CLAWD_HOME; this
-    folder if a save is already here (a copy run from source); else %APPDATA%\\Clawd (an install)."""
+    folder if a save is already here (a copy run from source); else %APPDATA%\\Clawd (an install), on macOS
+    ~/Library/Application Support/Clawd (and never inside RedCrab.app: the pet never writes there)."""
     h = os.environ.get("CLAWD_HOME")
     if h:
         return os.path.abspath(h)
-    if any(os.path.exists(os.path.join(HERE, n)) for n in ("state.json", "grow.json")):
+    bundled = MAC and macsys.app_bundle(HERE) is not None
+    if not bundled and any(os.path.exists(os.path.join(HERE, n)) for n in ("state.json", "grow.json")):
         return HERE
+    if MAC:
+        return macsys.home_dir()
     return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Clawd")
 
 
@@ -42,6 +52,8 @@ if os.path.basename(PYTHON).lower() == "pythonw.exe" and os.path.isfile(os.path.
     PYTHON = os.path.join(os.path.dirname(PYTHON), "python.exe")
 _w = os.path.join(os.path.dirname(PYTHON), "pythonw.exe")
 PYTHONW = _w if os.path.isfile(_w) else PYTHON
+if MAC:                                      # no pythonw on macOS: a window needs no other Python
+    PYTHON = PYTHONW = os.path.abspath(sys.executable or "/usr/bin/python3")
 MUTEX_NAME = "Local\\ClawdDesktopPet"
 # where each agent keeps its settings: their own variables first (CLAUDE_CONFIG_DIR, CODEX_HOME), then the home folder
 CLAUDE_DIR = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
@@ -174,6 +186,8 @@ def get_lang():
     global _LANG
     if _LANG is None:
         v = read_state().get("lang")
+        if v not in ("zh", "en") and MAC:
+            v = macsys.ui_lang()              # the first of the user's languages (System Settings > Language)
         if v not in ("zh", "en"):
             try:
                 import ctypes
@@ -199,6 +213,8 @@ def say(msg, quiet=False):
 
 
 def is_running():
+    if MAC:
+        return maclock.held(MUTEX_NAME)       # the pet holds a lock file (clawd_mac.lock): its named mutex
     if os.name != "nt":
         return False
     try:
@@ -236,6 +252,37 @@ def write_event(token):
         f.write(token + "\n")
 
 
+def detached():
+    """Popen arguments for a program that runs on by itself (the pet, the album, the connect window): on macOS a
+    session of its own, so closing the terminal it was started from (SIGHUP) or Ctrl+C there does not end it."""
+    return {"start_new_session": True} if MAC else {}
+
+
+def start_mac(quiet=False):
+    """cmd_on on macOS: the pet in a session of its own (what DETACHED_PROCESS is on Windows)."""
+    try:
+        subprocess.Popen([PYTHON, PET], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, close_fds=True, cwd=HERE, **detached())
+    except OSError as e:
+        say(T("启动失败：%s", "Failed to start: %s") % e, quiet)
+        return 1
+    say(T("Clawd 已启动。", "Clawd started."), quiet)
+    return 0
+
+
+def translocated(quiet=False):
+    """macOS: is this copy run from where Gatekeeper put it (App Translocation: a random read-only place, gone at the
+    app's next start)?  Then nothing lasting may point here (the agents' hooks, starting at login): it says so."""
+    if not (MAC and macsys.in_translocation(HERE)):
+        return False
+    say(T("RedCrab.app 正从 macOS 给它的临时位置（App Translocation）运行，下次打开时这个路径就不在了，所以什么都没改。"
+          "请先把 RedCrab.app 移到“应用程序”文件夹（或从那里打开一次），再运行一次。",
+          "RedCrab.app is running from a temporary place macOS gave it (App Translocation), gone the next time it "
+          "opens, so nothing was changed. Move RedCrab.app to Applications first (or open it once from there), then "
+          "run this again."), quiet)
+    return True
+
+
 def cmd_on(quiet=False):
     if is_running():
         if read_state().get("hidden") and not quiet:   # quiet: the autostart hook, which must not undo a hide
@@ -247,6 +294,8 @@ def cmd_on(quiet=False):
     if not os.path.exists(PET):
         say(T("找不到 clawd_pet.pyw，无法启动。", "Cannot find clawd_pet.pyw, so it cannot start."), quiet)
         return 1
+    if MAC:
+        return start_mac(quiet)
     base = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
               stderr=subprocess.DEVNULL, close_fds=True, cwd=HERE)
@@ -567,6 +616,9 @@ def cmd_status():
     running = is_running()
     if not running:
         print(T("Clawd 未运行。", "Clawd is not running."))
+    elif MAC and read_state().get("hidden"):           # the tray icon is in the menu bar there
+        print(T("Clawd 正在运行（已隐藏，点菜单栏图标或运行 clawd show 显示）。",
+                "Clawd is running (hidden; click the menu bar icon or run clawd show)."))
     elif read_state().get("hidden"):
         print(T("Clawd 正在运行（已隐藏，点托盘图标或运行 clawd show 显示）。",
                 "Clawd is running (hidden; click the tray icon or run clawd show)."))
@@ -582,6 +634,10 @@ def cmd_hide(show, quiet=False):
         say(T("Clawd 当前未在运行。", "Clawd isn't running."), quiet)
         return 1
     write_event("show" if show else "hide")
+    if MAC and not show:
+        say(T("好的：已隐藏，点菜单栏图标或运行 clawd show 显示。", "OK: hidden. Click the menu bar icon or run clawd show."),
+            quiet)
+        return 0
     say(T("好的：显示出来了。", "OK: shown.") if show
         else T("好的：已隐藏，点托盘图标或运行 clawd show 显示。", "OK: hidden. Click the tray icon or run clawd show."), quiet)
     return 0
@@ -610,8 +666,34 @@ def autostart_state():
     return "on"
 
 
+def autostart_mac(args):
+    """autostart on macOS: our LaunchAgent (~/Library/LaunchAgents, clawd_mac.system), loaded at each login, like the
+    Run key on Windows from the next one on."""
+    a = args[0].lower() if args else ""
+    if a not in ("on", "off", ""):
+        print(T("用法：autostart [on|off]", "Usage: autostart [on|off]"))
+        return 2
+    if a == "on" and translocated():
+        return 1
+    if a and not macsys.set_autostart(a == "on", macsys.pet_command(PET, PYTHON)):    # (RedCrab.app: its launcher)
+        print(T("改不了登录启动项（未做修改）：%s", "Could not change the login item (nothing was changed): %s")
+              % macsys.launch_agent_path())
+        return 1
+    if not macsys.autostart_enabled():
+        print(T("登录时启动：关。", "Start at login: off."))
+        return 0
+    print(T("登录时启动：开（下次登录起生效）。", "Start at login: on (from the next login)."))
+    if a == "on":
+        print(T("macOS 可能会提示“已添加后台项目”；在 系统设置 > 通用 > 登录项 里也能关掉它。",
+                "macOS may say a background item was added; it can be switched off in System Settings > General > "
+                "Login Items too."))
+    return 0
+
+
 def cmd_autostart(args):
     """开机自启：只写当前用户的启动项（HKCU Run），关掉时连任务管理器的禁用标记一起删。"""
+    if MAC:
+        return autostart_mac(args)
     import winreg
     a = args[0].lower() if args else ""
     if a not in ("on", "off", ""):
@@ -1001,6 +1083,8 @@ def cmd_hooks(args):
             rest.append(args[i])
             i += 1
     sub = rest[0] if rest else "status"
+    if sub == "on" and translocated():         # macOS: the hooks would point at a place gone next time
+        return 1
     flags = rest[1:]
     named = next((f.lower() for f in flags if not f.startswith("--")), None)
     if sub == "status" and named is None and path is None:
@@ -1178,6 +1262,8 @@ def set_hooks(agent, on):
 def cmd_refresh(quiet=False):
     """hooks refresh: ours that are another copy's (the program moved, an older kind) are written again for this
     copy; the others are left as they are.  The pets run it at each start."""
+    if translocated(quiet):
+        return 1
     n = 0
     for agent in AGENT_ORDER:
         if hook_state(agent) == "old":
@@ -1189,11 +1275,31 @@ def cmd_refresh(quiet=False):
     return 0
 
 
+PROGRAMS = ("clawd_pet.pyw", "clawd_album.pyw", "clawd_connect.pyw")     # this copy's windows, each its own process
+
+
+def close_windows_mac(wait=10.0):
+    """close_windows on macOS: once the pets have quit, this copy's programs still running are ended (the album, the
+    connect window, pets that did not quit).  Found by their script on the command line, so never another program
+    that runs with the same Python, nor another copy's: any copy may do it.  -> how many were closed."""
+    t0 = time.time()
+    while is_running() and time.time() - t0 < wait:
+        time.sleep(0.2)
+    n = 0
+    for name in PROGRAMS:
+        for pid in macsys.pet_processes(os.path.join(HERE, name)) or []:
+            if macsys.terminate(pid):
+                n += 1
+    return n
+
+
 def close_windows(wait=10.0):
     """An install (its own Python in python\\ beside the program): once the pets have quit (they save first), what
     else runs with that Python is closed: the album and the Connect AI window (they hold its files, so an update or
     an uninstall could not replace or remove them; 2026-11-16), a re-render.  Never for a copy run with a Python
     that is not its own (C:\\Python312: other programs may run with it).  -> how many were closed."""
+    if MAC:
+        return close_windows_mac(wait)
     if os.name != "nt":
         return 0
     pydir = os.path.normcase(os.path.dirname(os.path.abspath(PYTHON)))
@@ -1250,18 +1356,25 @@ def cmd_uninstall(quiet=False):
                 say(T("已删除备份：%s", "Backup removed: %s") % bak, quiet)
             except OSError:
                 pass
-    if PET.lower() in autostart_command().lower():     # only this copy's: another copy's start stays
+    mine = macsys.pet_command(PET, PYTHON)[-1] if MAC else PET     # (RedCrab.app's login item is its launcher)
+    if mine.lower() in autostart_command().lower():    # only this copy's: another copy's start stays
         import contextlib
         import io
         with contextlib.redirect_stdout(io.StringIO()):
             cmd_autostart(["off"])
+    if MAC:
+        say(T("已退出，四家的 hook 和登录时启动都去掉了。存档还在：%s", "Quit; the hooks of every agent and starting at "
+              "login are gone. The save is still in %s") % HOME, quiet)
+        return 0
     say(T("已退出，四家的 hook 和开机自启都去掉了。存档还在：%s", "Quit; the hooks of every agent and starting with "
           "Windows are gone. The save is still in %s") % HOME, quiet)
     return 0
 
 
 def autostart_command():
-    """-> the command registered to start with Windows, or ""."""
+    """-> the command registered to start with Windows (on macOS: at login, its arguments joined), or ""."""
+    if MAC:
+        return " ".join(macsys.autostart_command() or [])
     import winreg
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_KEY) as k:
@@ -1273,7 +1386,8 @@ def autostart_command():
 def open_connect(quiet=False):
     import subprocess
     subprocess.Popen([PYTHONW, os.path.join(HERE, "clawd_connect.pyw")],
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+                     **detached())
     say(T("连接 AI 的窗口打开了。", "The Connect AI window is open."), quiet)
     return 0
 
@@ -1306,7 +1420,8 @@ def main(argv):
     if c in ("album", "图鉴"):
         import subprocess
         subprocess.Popen([PYTHONW, os.path.join(os.path.dirname(os.path.abspath(PET)), "clawd_album.pyw"), "--home", HOME],
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
+                         **detached())
         say(T("图鉴打开了。", "The album is open."), quiet)
         return 0
     if c == "lang":
