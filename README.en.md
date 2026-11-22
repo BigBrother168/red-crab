@@ -32,6 +32,8 @@ Each conversation gets a little circle: blue while it works, orange when it need
 
 <img src="docs/media/circles_en.gif" width="800" alt="Circles for three conversations: the first one finishes and turns green, the third asks for you and turns orange, and the smallest holds up a sign with the conversation's number; hovering over a circle shows the conversation's name">
 
+> **Companion: Nook (coming soon)**　A visual Windows terminal made for AI command-line tools. Claude Code, Codex and Antigravity run in it as they are, with projects, past conversations, one-click keep or undo of what they changed, and web previews around them. Every connection an AI makes shows whether it goes through your proxy; with no proxy on, no AI starts, so your real IP never slips out; Nook itself never goes online and collects nothing. Red Crab knows it: a click on a circle goes straight to that terminal in Nook.
+
 ### Digging for treasures
 
 While the AI works, a small one digs. A find is shown off on the spot and carried to the big one when the turn is done. 28 treasures in all; you can also ask them to dig from the right-click menu.
