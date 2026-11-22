@@ -32,7 +32,7 @@ AI 做什么，大的就做什么：读文件拿放大镜，改代码敲键盘�
 
 <img src="docs/media/circles_zh.gif" width="800" alt="三个对话的圆圈：第一个做完了变绿，第三个等你回复变橙，最小的举牌写着是几号对话；鼠标停在圆圈上显示对话的名字">
 
-> **搭档：Nook（即将发布）**　专给 AI 命令行用的 Windows 可视化终端。Claude Code、Codex、Antigravity 原样跑在里面，外面加上项目、历史对话、改动一键保留或撤销、网页预览。AI 的每条连接走没走代理都看得见，没开代理就不让 AI 启动，真实 IP 不会悄悄露出去；Nook 自己不联网、不统计。红螃蟹认得它：点圆圈直接切到 Nook 里的那个终端。
+> **搭档：[Nook](https://github.com/BigBrother168/Nook)**　专给 AI 命令行用的 Windows 可视化终端。Claude Code、Codex、Antigravity 原样跑在里面，外面加上项目、历史对话、改动一键保留或撤销、网页预览。AI 的每条连接走没走代理都看得见，没开代理就不让 AI 启动，真实 IP 不会悄悄露出去；Nook 自己不联网、不统计。红螃蟹认得它：点圆圈直接切到 Nook 里的那个终端。
 
 ### 翻宝贝
 
