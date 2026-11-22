@@ -29,7 +29,7 @@ def run(word, stdin, agent='claude', keep_open=0.0, extra=(), env=None):
     agent may not close it), the hook must not wait for it."""
     open(OUT, 'w').close()
     t = time.perf_counter()
-    e = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_CODE_ENTRYPOINT', 'WT_SESSION')}
+    e = {k: v for k, v in os.environ.items() if k not in ('CLAUDE_CODE_ENTRYPOINT', 'WT_SESSION', 'NOOK_TERMINAL')}
     e.update(env or {})
     p = subprocess.Popen([PY, '-I', '-S', HOOK, word, agent] + list(extra) + [clawd.MARK], stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=e)
@@ -92,6 +92,12 @@ out, code, _ = run('hello', payload(hook_event_name='SessionStart', source='star
 check('the desktop app: its entry, no tab', out.splitlines()[-1:] and out.splitlines()[-1].endswith(' claude claude-desktop -'), repr(out))
 out, code, _ = run('listen', payload(hook_event_name='UserPromptSubmit', prompt='x' * 9000, source='poll_event'), extra=['--at'])
 check("Code Mode handing back a script's output (source poll_event): nothing written", out == '' and code == 0, repr(out))
+# in Nook: its terminal (NOOK_TERMINAL) last, only there
+out, code, _ = run('listen', payload(hook_event_name='UserPromptSubmit', prompt='hi'), extra=['--at'],
+                   env={'CLAUDE_CODE_ENTRYPOINT': 'cli', 'NOOK_TERMINAL': '26284-3'})
+check('in Nook: its terminal after the tab', out.splitlines()[-1:] and out.splitlines()[-1].endswith(' claude cli - 26284-3'), repr(out))
+out, code, _ = run('think', payload(), agent='codex', extra=['--at'], env={'NOOK_TERMINAL': '26284-4 & x'})
+check('in Nook, Codex: only digits and dashes of it', out.splitlines()[-1:] and out.splitlines()[-1].endswith(' codex - - 26284-4'), repr(out))
 out, code, _ = run('listen', payload(hook_event_name='UserPromptSubmit', prompt='talk about "source":"poll_event" please'), extra=['--at'])
 check('a prompt that only says poll_event: still you', out.startswith('listen abcdef12'), repr(out))
 out, code, _ = run('hello', payload(hook_event_name='SessionStart', source='compact'), extra=['--at'])

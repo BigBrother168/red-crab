@@ -962,6 +962,31 @@ def window_class(hwnd):
     return buf.value if hwnd and GetClassNameW(hwnd, buf, 64) else ""
 
 
+def window_exe(hwnd):
+    """The program file of the process a window is of, "" if not known"""
+    if not hwnd:
+        return ""
+    k32 = ctypes.windll.kernel32
+    pid = ctypes.c_ulong()
+    user32.GetWindowThreadProcessId(HWND(hwnd), ctypes.byref(pid))
+    hp = k32.OpenProcess(0x1000, False, pid.value)                  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not hp:
+        return ""
+    try:
+        n = ctypes.c_ulong(520)
+        path = ctypes.create_unicode_buffer(520)
+        return path.value if k32.QueryFullProcessImageNameW(hp, 0, path, ctypes.byref(n)) else ""
+    finally:
+        k32.CloseHandle(hp)
+
+
+def nook_exe(hwnd):
+    """Nook.exe's path if the window is Nook's, else "".  Nook is a terminal app whose tabs and panes it draws itself,
+    so Windows Terminal's way to a tab is no use there: "Nook.exe --show <NOOK_TERMINAL>" goes to one."""
+    exe = window_exe(hwnd)
+    return exe if os.path.basename(exe).lower() == "nook.exe" else ""
+
+
 def tab_shells():
     """The PowerShell programs to run clawd_tabs.ps1 with, best first.  Not found by PATH: pets started from Claude's
     desktop app have PowerShell 7's package folder first on it (C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_...),
@@ -3178,8 +3203,8 @@ def parse_token(line):
     """One event line (bytes, any of UTF-8 / UTF-8 BOM / UTF-16 LE/BE) -> (token, session, more) or None.
 
     The session is the start of the agent's session id, "" if the line has none or it is malformed.  more: up to
-    four words after it (the "at" line: the conversation's window, which agent, Claude Code's entrypoint and the
-    Windows Terminal tab; "word session" is all the others are)."""
+    five words after it (the "at" line: the conversation's window, which agent, Claude Code's entrypoint, the
+    Windows Terminal tab and, in Nook, its terminal; "word session" is all the others are)."""
     if not line:
         return None
     if b"\x00" in line:                       # UTF-16: tokens are ASCII, drop the zero bytes
@@ -3192,7 +3217,7 @@ def parse_token(line):
     if not tok:
         return None
     sid = words[1].lower() if len(words) > 1 else ""
-    return tok, (sid if len(sid) == 8 and all(c in "0123456789abcdef-" for c in sid) else ""), tuple(words[2:6])
+    return tok, (sid if len(sid) == 8 and all(c in "0123456789abcdef-" for c in sid) else ""), tuple(words[2:7])
 
 
 class EventChannel(object):
@@ -6281,6 +6306,7 @@ class Family(object):
         self.talk_where = {}                   # session -> (its window or None, the agent's name), from its "at" line
         self.talk_entry = self.titles.entry    # session -> Claude Code's entrypoint, from its "at" line (TalkTitles)
         self.talk_wt = {}                      # session -> the Windows Terminal tab it runs in (WT_SESSION), "at" line
+        self.talk_nook = {}                    # session -> the Nook terminal it runs in (NOOK_TERMINAL), "at" line
         self.places_saved = None               # what talks.json holds (_places_now), to write it on a change
         self.codex_kind = {}                   # Codex session -> "talk" (a conversation), "job" (Codex's own background
                                                # work: not shown) or a sub-agent's parent session (counted on it)
@@ -6463,6 +6489,11 @@ class Family(object):
                 self.titles.where.pop(session, None)
             if len(more) > 3 and more[3] != "-":
                 self.talk_wt[session] = more[3].lower()[:36]
+            nook = "".join(c for c in more[4] if c in "0123456789-")[:24] if len(more) > 4 else ""
+            if nook:
+                self.talk_nook[session] = nook
+            elif hwnd > 0:
+                self.talk_nook.pop(session, None)   # a window of its own, not in Nook (resumed elsewhere)
             if len(self.talk_where) >= 64 and session not in self.talk_where:
                 self.talk_where.clear()
             if where[0] and window_class(where[0]) == TERMINAL_CLASS:
@@ -6491,6 +6522,7 @@ class Family(object):
             self.talk_tab.pop(session, None)
             self.talk_entry.pop(session, None)
             self.talk_wt.pop(session, None)
+            self.talk_nook.pop(session, None)
             return
         if t is None:
             if tok in ("hello", "attention", "agent_done", "compact_end") or len(self.talks) >= TALK_MAX:
@@ -6552,6 +6584,8 @@ class Family(object):
                     self.talk_entry[session] = rec[3][:24]
                 if len(rec) > 4 and isinstance(rec[4], str) and rec[4]:
                     self.talk_wt[session] = rec[4][:36]
+                if len(rec) > 5 and isinstance(rec[5], str) and rec[5]:
+                    self.talk_nook[session] = rec[5][:24]
                 if hwnd and not (isinstance(hwnd, int) and IsWindow(hwnd) and window_class(hwnd) == cls):
                     hwnd = None                # gone (or its handle is another window's now): the agent stays known
                 self.talk_where[session] = (hwnd or None, str(agent or "")[:16])
@@ -6606,14 +6640,14 @@ class Family(object):
 
     def _places_now(self):
         """What talks.json says, to tell when it is to be written again"""
-        return (dict(self.talk_where), dict(self.talk_tab), dict(self.talk_entry), dict(self.talk_wt),
+        return (dict(self.talk_where), dict(self.talk_tab), dict(self.talk_entry), dict(self.talk_wt), dict(self.talk_nook),
                 {s: (t["n"], t.get("end"), bool(t.get("wait"))) for s, t in self.talks.items()})
 
     def _places_save(self):
         self.places_saved = self._places_now()
         wall, now = time.time(), time.perf_counter()
         d = {"where": {s: [w[0] or 0, w[1], window_class(w[0]) if w[0] else "", self.talk_entry.get(s, ""),
-                           self.talk_wt.get(s, "")] for s, w in self.talk_where.items()},
+                           self.talk_wt.get(s, ""), self.talk_nook.get(s, "")] for s, w in self.talk_where.items()},
              "tab": {s: [t[0], t[1]] for s, t in self.talk_tab.items()},
              "circles": {s: {"n": t["n"], "end": t.get("end"), "wait": bool(t.get("wait")),
                              "end_at": wall - (now - t["end_at"]) if t.get("end_at") is not None else None,
@@ -7054,19 +7088,23 @@ class Family(object):
           Claude's desktop app (told by its hook / transcript), Codex's desktop app: its window, and its link opens
             that very conversation ("open": not when it is the one shown already: the app came up twice)
           a terminal (Claude's told so; another agent's by its window): its window, and in Windows Terminal its tab
+          Nook (a terminal app, any agent in it): Nook.exe --show <its terminal>, which shows Nook (from the tray too)
+            at that terminal; with none known yet, Nook.exe alone shows its window
           DeepSeek, Antigravity (one window, no link to one conversation): their window; from the tray if hidden
-        -> {"code", "hwnd", "link", "tab", "agent", "kind"}; code: none / link-app / tab / window / link / open /
-        tray-show / tray-link / hidden.  Nothing is done here but finding (talk_jump does, talk_report tells)."""
+        -> {"code", "hwnd", "link", "tab", "nook", "exe", "agent", "kind"}; code: none / link-app / nook / tab / window /
+        link / open / tray-show / tray-link / hidden.  Nothing is done here but finding (talk_jump does, talk_report tells)."""
         where = self.talk_where.get(session, (None, ""))
         agent = self.talk_agent(session, now)
         kind = self._claude_kind(session, now)
         hwnd = where[0] if where[0] and IsWindow(where[0]) else None
-        term = bool(hwnd) and window_class(hwnd) in TERMINAL_CLASSES
+        exe = nook_exe(hwnd) if hwnd else ""
+        term = bool(hwnd) and (window_class(hwnd) in TERMINAL_CLASSES or bool(exe))
         if kind == "desk" and term:
             hwnd, term = None, False           # resumed in its desktop app since its terminal said where it was
         elif kind == "cli":
             term = True
-        w = {"agent": agent, "kind": kind or ("term" if term else ""), "hwnd": hwnd, "link": None, "tab": None}
+        w = {"agent": agent, "kind": kind or ("term" if term else ""), "hwnd": hwnd, "link": None, "tab": None,
+             "nook": None, "exe": exe}
         # a conversation in a terminal stays there: its app's link would open it somewhere else (Codex's CLI and app
         # share their threads)
         link = None if term else self.titles.link(session, agent, now)
@@ -7084,7 +7122,9 @@ class Family(object):
             return w
         hidden = not user32.IsWindowVisible(hwnd)
         tab = self.talk_tab.get(session)
-        if hidden and AGENT_INFO.get(agent, {}).get("hides"):
+        if exe:
+            code, w["nook"] = "nook", self.talk_nook.get(session)   # in Nook: it goes there itself, from the tray too
+        elif hidden and AGENT_INFO.get(agent, {}).get("hides"):
             code = "tray-show"                 # DeepSeek only hides its one window: shown again at once
         elif hidden:
             code = "tray-link" if link else "hidden"
@@ -7110,6 +7150,12 @@ class Family(object):
                           "its terminal's window (its tab not known yet: a message sent in that tab tells)") if zh \
                     else "its terminal's window, its tab not known"
             return tr("拉它的终端窗口", "its terminal's window") if zh else "its terminal's window"
+        if c == "nook":
+            if w.get("nook"):
+                return tr("切到它在 Nook 里的终端", "its terminal in Nook") if zh else "its terminal in Nook"
+            return tr("拉 Nook 的窗口（终端还没记下：在那个终端里发一条消息就记下）",
+                      "Nook's window (its terminal not known yet: a message sent there tells)") if zh \
+                else "Nook's window, its terminal not known"
         texts = {"none": ("它的窗口还不知道（它下一次发消息时记下）", "its window not known yet (its next message tells)"),
                  "link-app": ("打开它的链接（程序的窗口没找到）", "its link (its app's window not found)"),
                  "tab": ("切到它在 Windows Terminal 里的标签", "its tab in Windows Terminal"),
@@ -7130,7 +7176,8 @@ class Family(object):
             if kind == "desk" or (agent == "codex" and kind != "term"):
                 where = say("桌面版", "desktop app")
             else:
-                where = say("终端", "terminal") + (" (Windows Terminal)" if w["hwnd"] and window_class(w["hwnd"]) == TERMINAL_CLASS else "")
+                where = say("终端", "terminal") + (" (Nook)" if w.get("exe") else
+                                                    " (Windows Terminal)" if w["hwnd"] and window_class(w["hwnd"]) == TERMINAL_CLASS else "")
             return "%s %s" % (label if agent else "Claude", where)
         return label
 
@@ -7145,6 +7192,9 @@ class Family(object):
             return
         if code == "link-app":
             self.open_link(link, n, now)
+            return
+        if code == "nook":
+            self.nook_show(w, n)
             return
         shown = False
         if code == "tray-show":
@@ -7168,6 +7218,24 @@ class Family(object):
                 self.open_link(link, n, now)   # (hidden: the link brings the app's window back, at that conversation)
         elif code == "open":
             log("circle %s: already the conversation open in its app, no link" % n)
+
+    def nook_show(self, w, n):
+        """A conversation in Nook: its window to the front, then "Nook.exe --show <its terminal>" (Nook runs once: the
+        Nook started so hands it to the one running, which shows that tab and pane, its window from the tray too).  No
+        terminal known: Nook.exe alone, which shows the window."""
+        import subprocess
+        hwnd = w["hwnd"]
+        if user32.IsWindowVisible(hwnd):
+            if IsIconic(hwnd):
+                ShowWindow(hwnd, SW_RESTORE)
+            SetForegroundWindow(hwnd)
+        args = [w["exe"]] + (["--show", w["nook"]] if w.get("nook") else [])
+        try:
+            subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             close_fds=True, creationflags=0x08000000)       # CREATE_NO_WINDOW
+            log("circle %s clicked: window %d, %s" % (n, hwnd, " ".join(["Nook.exe"] + args[1:])))
+        except OSError as e:
+            log("circle %s clicked: Nook not started (%s)" % (n, e))
 
     def talk_report(self, now):
         """clawd circles: each circle, what it is and where a click on it goes (_way, as a click would find it),

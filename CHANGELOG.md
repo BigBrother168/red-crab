@@ -3,6 +3,11 @@
 每个版本改了什么。安装包在 GitHub 的 Releases 里下载。
 What changed in each version. The installer is on the GitHub Releases page.
 
+## 1.0.1（2026-11-21）
+
+- **点圆圈认得 Nook**：在 Nook（自己画标签和分屏的 AI 终端）里的对话，点圆圈切到它所在的那个终端，Nook 在托盘里也会出来；里面的 Codex 不会再把 ChatGPT 桌面版弹出来。
+  **Circles know Nook**: a click on the circle of a conversation in Nook (an AI terminal that draws its own tabs and panes) goes to its very terminal, bringing Nook back from its tray too; Codex in it no longer brings up the ChatGPT desktop app.
+
 ## 1.0.0（2026-11-16）
 
 第一个公开版本。发布前最后的调整：

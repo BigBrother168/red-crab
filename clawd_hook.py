@@ -1,10 +1,11 @@
 """clawd_hook.py WORD [AGENT] [--at]: one hook of an agent, as a line in the pets' event file.
 
   WORD AGENT        ->  "WORD <session>"                    (what the pets know: listen, run, stop, ...)
-  at AGENT          ->  "at <session> <window> AGENT <entry> <tab>"   (where that conversation is: for the numbered
-                         circles; entry: Claude Code's CLAUDE_CODE_ENTRYPOINT, "claude-desktop" or "cli", which says
-                         whether a click opens its desktop app or goes to its terminal; tab: WT_SESSION, the Windows
-                         Terminal tab it runs in; "-" for none)
+  at AGENT          ->  "at <session> <window> AGENT <entry> <tab> [<nook>]"   (where that conversation is: for the
+                         numbered circles; entry: Claude Code's CLAUDE_CODE_ENTRYPOINT, "claude-desktop" or "cli", which
+                         says whether a click opens its desktop app or goes to its terminal; tab: WT_SESSION, the Windows
+                         Terminal tab it runs in; "-" for none; nook: NOOK_TERMINAL, the terminal of the Nook app it
+                         runs in, only there)
   WORD AGENT --at   ->  both lines
 
   Not you (2026-11-15): a UserPromptSubmit that is Code Mode handing a script's output back to Claude ("source":
@@ -109,10 +110,17 @@ def payload(head, wait=1.5, limit=1 << 21):
 
 def where_fields():
     """-> "<entry> <tab>" from the environment the agent runs its hooks in (Claude Code's CLAUDE_CODE_ENTRYPOINT,
-    Windows Terminal's WT_SESSION), "-" for one not there"""
+    Windows Terminal's WT_SESSION), "-" for one not there; and " <nook>" in a terminal of Nook (NOOK_TERMINAL, "its
+    process-its terminal": Nook.exe --show <nook> goes there), nothing elsewhere, so other lines stay as they were"""
     entry = re.sub(r"[^a-z0-9_-]", "", os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").lower())[:24]
     tab = re.sub(r"[^0-9a-f-]", "", os.environ.get("WT_SESSION", "").lower())[:36]
-    return "%s %s" % (entry or "-", tab or "-")
+    nook = nook_field()
+    return "%s %s" % (entry or "-", tab or "-") + (" " + nook if nook else "")
+
+
+def nook_field():
+    """NOOK_TERMINAL, the terminal of Nook the agent runs in ("its process-its terminal"), "" outside Nook"""
+    return re.sub(r"[^0-9-]", "", os.environ.get("NOOK_TERMINAL", ""))[:24]
 
 
 def window():
@@ -283,7 +291,7 @@ def ag_main(event):
             hwnd = window() or 0
         except Exception:
             hwnd = 0
-        lines.append("at %s %d antigravity" % (sid, hwnd))
+        lines.append("at %s %d antigravity" % (sid, hwnd) + (" - - " + nook_field() if nook_field() else ""))
     write_lines(lines)
 
 

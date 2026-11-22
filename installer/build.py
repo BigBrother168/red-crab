@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 r"""Red Crab: Setup.exe.  Standard library only.
 
-    python installer/build.py [--version 1.0.0] [--out DIR] [--embed-zip ZIP] [--iscc ISCC.exe] [--stage-only]
+    python installer/build.py [--version 1.0.1] [--out DIR] [--embed-zip ZIP] [--iscc ISCC.exe] [--stage-only]
 
 Run it with a full CPython 3.12 for Windows (64-bit) that has Tk (C:\Python312 here; actions/setup-python in CI):
 its _tkinter, Tcl/Tk and tkinter package are copied into the embedded Python, which has none (the album and the
@@ -173,7 +173,7 @@ def find_iscc(given):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--version", default="1.0.0")
+    ap.add_argument("--version", default="1.0.1")
     ap.add_argument("--out", default=os.path.join(ROOT, "build"))
     ap.add_argument("--embed-zip")
     ap.add_argument("--iscc")
